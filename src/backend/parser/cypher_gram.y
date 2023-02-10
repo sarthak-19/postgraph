@@ -79,23 +79,26 @@
 /* keywords in alphabetical order */
 %token <keyword> ALL ANALYZE AND AS ASC ASCENDING
                  BETWEEN BY
-                 CALL CASE COALESCE CONTAINS CREATE
-                 DELETE DESC DESCENDING DETACH DISTINCT
-                 ELSE END_P ENDS EXISTS EXPLAIN
-                 FALSE_P
-                 IN IS
+                 CALL CASE CENTURY COALESCE CONTAINS CREATE
+                 DATE DAY DECADE DELETE DESC DESCENDING DETACH DISTINCT DOW DOY
+                 ELSE END_P ENDS EPOCH EXISTS EXPLAIN EXTRACT
+                 FALSE_P FROM
+                 HOUR
+                 IN INTERVAL IS
+                 JULIAN
                  LIMIT
-                 MATCH MERGE
+                 MATCH MERGE MICROSECONDS MILLENIUM MILLISECONDS MINUTE MONTH
                  NOT NULL_P
                  OPTIONAL OR ORDER
                  REMOVE RETURN
-                 SET SKIP STARTS SYMMETRIC
-                 THEN TRUE_P
+                 SECOND SET SKIP STARTS SYMMETRIC
+                 TIME TIMESTAMP TIMESTAMPTZ THEN TRUE_P
                  UNION UNWIND
                  VERBOSE
-                 WHEN WHERE WITH
+                 WEEK WHEN WHERE WITH
                  XOR
-                 YIELD
+                 YEAR YIELD
+                 ZONE
 
 /* query */
 %type <node> stmt
@@ -146,13 +149,19 @@
 %type <string> label_opt
 
 /* expression */
-%type <node> expr expr_opt expr_atom expr_literal map list
+%type <node> expr b_expr expr_opt expr_atom expr_literal map list
 
 %type <node> expr_case expr_case_when expr_case_default
 %type <list> expr_case_when_list
 
+%type <string> time_ident
+
+%type<string> typecast_ident
+
 %type <node> expr_var expr_func expr_func_norm expr_func_subexpr
-%type <list> expr_list expr_list_opt map_keyval_list_opt map_keyval_list
+%type <list> expr_list 
+%type <string> exist_field_expr
+%type <list> expr_list_opt map_keyval_list_opt map_keyval_list
 %type <node> property_value
 
 /* names */
@@ -167,11 +176,11 @@
 %left AND
 %left XOR
 %right NOT
+%nonassoc BETWEEN IN IS
 %left '=' NOT_EQ '<' LT_EQ '>' GT_EQ
 %left '+' '-'
 %left '*' '/' '%'
 %left '^'
-%nonassoc BETWEEN IN IS
 %right UNARY_MINUS
 %nonassoc CONTAINS ENDS EQ_TILDE STARTS
 %left '[' ']' '(' ')'
@@ -1166,7 +1175,6 @@ properties_opt:
 
             $$ = (Node *)n;
         }
-
     ;
 
 /*
@@ -1214,55 +1222,31 @@ expr:
         {
             $$ = build_comparison_expression($1, $3, ">=", @2);
         }
-    | expr '+' expr
-        {
-            $$ = (Node *)makeSimpleA_Expr(AEXPR_OP, "+", $1, $3, @2);
-        }
-    | expr '-' expr
-        {
-            $$ = (Node *)makeSimpleA_Expr(AEXPR_OP, "-", $1, $3, @2);
-        }
-    | expr '*' expr
-        {
-            $$ = (Node *)makeSimpleA_Expr(AEXPR_OP, "*", $1, $3, @2);
-        }
-    | expr '/' expr
-        {
-            $$ = (Node *)makeSimpleA_Expr(AEXPR_OP, "/", $1, $3, @2);
-        }
-    | expr '%' expr
-        {
-            $$ = (Node *)makeSimpleA_Expr(AEXPR_OP, "%", $1, $3, @2);
-        }
-    | expr '^' expr
-        {
-            $$ = (Node *)makeSimpleA_Expr(AEXPR_OP, "^", $1, $3, @2);
-        }
-    | expr BETWEEN expr AND expr
+    | b_expr BETWEEN b_expr AND b_expr %prec BETWEEN
         {
             $$ = (Node *) makeSimpleA_Expr(AEXPR_BETWEEN,
                                            "BETWEEN",
                                             $1, (Node *) list_make2($3, $5), @2);
         }
-    | expr NOT BETWEEN expr AND expr
+    | b_expr NOT BETWEEN b_expr AND b_expr %prec BETWEEN
         {
             $$ = (Node *) makeSimpleA_Expr(AEXPR_NOT_BETWEEN,
                                            "NOT BETWEEN",
                                            $1, (Node *) list_make2($4, $6), @2);
         }
-    | expr BETWEEN SYMMETRIC expr AND expr %prec BETWEEN
+    | b_expr BETWEEN SYMMETRIC b_expr AND b_expr %prec BETWEEN
         {
             $$ = (Node *) makeSimpleA_Expr(AEXPR_BETWEEN_SYM,
                                            "BETWEEN SYMMETRIC",
                                            $1, (Node *) list_make2($4, $6), @2);
         }
-    | expr NOT BETWEEN SYMMETRIC expr AND expr %prec NOT
+    | b_expr NOT BETWEEN SYMMETRIC b_expr AND b_expr %prec BETWEEN
         {
             $$ = (Node *) makeSimpleA_Expr(AEXPR_NOT_BETWEEN_SYM,
                                            "NOT BETWEEN SYMMETRIC",
                                            $1, (Node *)list_make2($5, $7), @2);
         }
-    | expr IN expr
+    | b_expr IN b_expr
         {
             $$ = (Node *)makeSimpleA_Expr(AEXPR_IN, "=", $1, $3, @2);
         }
@@ -1288,11 +1272,7 @@ expr:
 
             $$ = (Node *)n;
         }
-    | '-' expr %prec UNARY_MINUS
-        {
-            $$ = do_negate($2, @1);
-        }
-    | expr STARTS WITH expr %prec STARTS
+    | b_expr STARTS WITH b_expr %prec STARTS
         {
             cypher_string_match *n;
 
@@ -1304,7 +1284,7 @@ expr:
 
             $$ = (Node *)n;
         }
-    | expr ENDS WITH expr %prec ENDS
+    | b_expr ENDS WITH b_expr %prec ENDS
         {
             cypher_string_match *n;
 
@@ -1316,7 +1296,7 @@ expr:
 
             $$ = (Node *)n;
         }
-    | expr CONTAINS expr
+    | b_expr CONTAINS b_expr
         {
             cypher_string_match *n;
 
@@ -1328,12 +1308,48 @@ expr:
 
             $$ = (Node *)n;
         }
-    | expr EQ_TILDE expr
+    | b_expr EQ_TILDE b_expr
         {
             $$ = make_function_expr(list_make1(makeString("eq_tilde")),
                                     list_make2($1, $3), @2);
         }
-    | expr '[' expr ']'
+    | b_expr
+    ;
+
+b_expr:
+    '(' expr ')'
+        {
+            $$ = $2;
+        }
+    | b_expr '+' b_expr
+        {
+            $$ = (Node *)makeSimpleA_Expr(AEXPR_OP, "+", $1, $3, @2);
+        }
+    | b_expr '-' b_expr
+        {
+            $$ = (Node *)makeSimpleA_Expr(AEXPR_OP, "-", $1, $3, @2);
+        }
+    | b_expr '*' b_expr
+        {
+            $$ = (Node *)makeSimpleA_Expr(AEXPR_OP, "*", $1, $3, @2);
+        }
+    | b_expr '/' b_expr
+        {
+            $$ = (Node *)makeSimpleA_Expr(AEXPR_OP, "/", $1, $3, @2);
+        }
+    | b_expr '%' b_expr
+        {
+            $$ = (Node *)makeSimpleA_Expr(AEXPR_OP, "%", $1, $3, @2);
+        }
+    | b_expr '^' b_expr
+        {
+            $$ = (Node *)makeSimpleA_Expr(AEXPR_OP, "^", $1, $3, @2);
+        }
+    | '-' b_expr %prec UNARY_MINUS
+        {
+            $$ = do_negate($2, @1);
+        }
+    | b_expr '[' expr ']'
         {
             A_Indices *i;
 
@@ -1344,7 +1360,7 @@ expr:
 
             $$ = append_indirection($1, (Node *)i);
         }
-    | expr '[' expr_opt DOT_DOT expr_opt ']'
+    | b_expr '[' expr_opt DOT_DOT expr_opt ']'
         {
             A_Indices *i;
 
@@ -1362,7 +1378,7 @@ expr:
      * decide what specific rule needs to be applied and then construct the
      * required result.
      */
-    | expr '.' expr
+    | b_expr '.' b_expr
         {
             /*
              * This checks for the grammar rule -
@@ -1440,9 +1456,27 @@ expr:
                          errmsg("invalid indirection syntax"),
                          ag_scanner_errposition(@1, scanner)));
         }
-    | expr TYPECAST symbolic_name
+    | b_expr TYPECAST symbolic_name
         {
             $$ = make_typecast_expr($1, $3, @2);
+        }
+    | b_expr TYPECAST time_ident
+        {
+            $$ = make_typecast_expr($1, $3, @2);
+        }
+    | typecast_ident b_expr %prec TYPECAST
+        {
+            $$ = make_typecast_expr($2, $1, @1);
+        }
+    | PARAMETER
+        {
+            cypher_param *n;
+
+            n = make_ag_node(cypher_param);
+            n->name = $1;
+            n->location = @1;
+
+            $$ = (Node *)n;
         }
     | expr_atom
     ;
@@ -1488,7 +1522,6 @@ expr_func_norm:
         {
             $$ = make_function_expr($1, $3, @2);
         }
-    /* borrowed from PG's grammar */
     | func_name '(' '*' ')'
         {
             /*
@@ -1527,7 +1560,7 @@ expr_func_subexpr:
     | EXISTS '(' anonymous_path ')'
         {
             cypher_sub_pattern *sub;
-            SubLink    *n;
+            SubLink *n;
 
             sub = make_ag_node(cypher_sub_pattern);
             sub->kind = CSP_EXISTS;
@@ -1542,11 +1575,126 @@ expr_func_subexpr:
             n->location = @1;
             $$ = (Node *) n;
         }
-    | EXISTS '(' property_value ')'
+    | EXTRACT '(' exist_field_expr FROM expr  ')'
         {
-            $$ = make_function_expr(list_make1(makeString("exists")),
-                                    list_make1($3), @2);
+            $$ = make_function_expr(list_make1(makeString($1)), list_make2(make_string_const($3, @3), $5), @1);
         }
+    | EXTRACT '(' expr ',' expr  ')'
+        {
+            $$ = make_function_expr(list_make1(makeString($1)), list_make2($3, $5), @1);
+        }
+    ;
+
+typecast_ident:
+        DATE
+        {
+             $$ = $1;
+        }
+        | INTERVAL
+        {
+              $$ = $1;
+        }
+        | TIMESTAMP
+        {
+              $$ = $1;
+        }
+        | TIMESTAMPTZ
+        {
+              $$ = $1;
+        }
+        | TIME
+        {
+              $$ = $1;
+        }
+
+time_ident:
+        DATE
+        {
+             $$ = $1;
+        }
+        | INTERVAL
+        {
+              $$ = $1;
+        }
+        | TIMESTAMP
+        {
+              $$ = $1;
+        }
+        | TIMESTAMPTZ
+        {
+              $$ = $1;
+        }
+        | TIME
+        {
+              $$ = $1;
+        }
+   ;
+
+exist_field_expr:
+    SECOND
+        {
+            $$ = $1;
+        }
+    | DAY
+       { 
+            $$ = $1;
+       } 
+    | DECADE      
+       {         
+            $$ = $1;
+       }   
+    | DOW      
+       {
+            $$ = $1;
+       } 
+    | DOY      
+       {
+            $$ = $1;
+       }      
+    | EPOCH      
+       {
+            $$ = $1;
+       }     
+    | HOUR      
+       {
+            $$ = $1;
+       } 
+    | JULIAN      
+       {
+            $$ = $1;
+       }
+    | MICROSECONDS      
+       {         
+            $$ = $1;
+       }
+    | MILLENIUM      
+       {         
+            $$ = $1;
+       }
+    | MILLISECONDS      
+       {         
+            $$ = $1;
+       }
+    | MINUTE      
+       {
+            $$ = $1;
+       }
+    | MONTH      
+       {
+            $$ = $1;
+       }
+    | WEEK      
+       {
+            $$ = $1;
+       }
+    | YEAR      
+       {
+            $$ = $1;
+       }
+    | CENTURY
+       {
+            $$ = $1;
+       } 
     ;
 
 property_value:
@@ -1558,20 +1706,6 @@ property_value:
 
 expr_atom:
     expr_literal
-    | PARAMETER
-        {
-            cypher_param *n;
-
-            n = make_ag_node(cypher_param);
-            n->name = $1;
-            n->location = @1;
-
-            $$ = (Node *)n;
-        }
-    | '(' expr ')'
-        {
-            $$ = $2;
-        }
     | expr_case
     | expr_var
     | expr_func
@@ -1737,10 +1871,10 @@ func_name:
      * keywords to be used as well. So, it essentially makes the
      * rule schema_name '.' symbolic_name for func_name
      */
-    | safe_keywords '.' symbolic_name
+    /*| safe_keywords '.' symbolic_name
         {
             $$ = list_make2(makeString((char *)$1), makeString($3));
-        }
+        }*/
     ;
 
 property_key_name:
@@ -1785,53 +1919,74 @@ reserved_keyword:
  * All keywords need to be copied and properly terminated with a null before
  * using them, pnstrdup effectively does this for us.
  */
-
 safe_keywords:
-    ALL          { $$ = pnstrdup($1, 3); }
-    | ANALYZE    { $$ = pnstrdup($1, 7); }
-    | AND        { $$ = pnstrdup($1, 3); }
-    | AS         { $$ = pnstrdup($1, 2); }
-    | ASC        { $$ = pnstrdup($1, 3); }
-    | ASCENDING  { $$ = pnstrdup($1, 9); }
-    | BETWEEN    { $$ = pnstrdup($1, 7); }
-    | BY         { $$ = pnstrdup($1, 2); }
-    | CALL       { $$ = pnstrdup($1, 4); }
-    | CASE       { $$ = pnstrdup($1, 4); }
-    | COALESCE   { $$ = pnstrdup($1, 8); }
-    | CONTAINS   { $$ = pnstrdup($1, 8); }
-    | CREATE     { $$ = pnstrdup($1, 6); }
-    | DELETE     { $$ = pnstrdup($1, 6); }
-    | DESC       { $$ = pnstrdup($1, 4); }
-    | DESCENDING { $$ = pnstrdup($1, 10); }
-    | DETACH     { $$ = pnstrdup($1, 6); }
-    | DISTINCT   { $$ = pnstrdup($1, 8); }
-    | ELSE       { $$ = pnstrdup($1, 4); }
-    | ENDS       { $$ = pnstrdup($1, 4); }
-    | EXISTS     { $$ = pnstrdup($1, 6); }
-    | EXPLAIN    { $$ = pnstrdup($1, 7); }
-    | IN         { $$ = pnstrdup($1, 2); }
-    | IS         { $$ = pnstrdup($1, 2); }
-    | LIMIT      { $$ = pnstrdup($1, 6); }
-    | MATCH      { $$ = pnstrdup($1, 6); }
-    | MERGE      { $$ = pnstrdup($1, 6); }
-    | NOT        { $$ = pnstrdup($1, 3); }
-    | OPTIONAL   { $$ = pnstrdup($1, 8); }
-    | OR         { $$ = pnstrdup($1, 2); }
-    | ORDER      { $$ = pnstrdup($1, 5); }
-    | REMOVE     { $$ = pnstrdup($1, 6); }
-    | RETURN     { $$ = pnstrdup($1, 6); }
-    | SET        { $$ = pnstrdup($1, 3); }
-    | SKIP       { $$ = pnstrdup($1, 4); }
-    | STARTS     { $$ = pnstrdup($1, 6); }
-    | SYMMETRIC  { $$ = pnstrdup($1, 9); }
-    | THEN       { $$ = pnstrdup($1, 4); }
-    | UNION      { $$ = pnstrdup($1, 5); }
-    | WHEN       { $$ = pnstrdup($1, 4); }
-    | VERBOSE    { $$ = pnstrdup($1, 7); }
-    | WHERE      { $$ = pnstrdup($1, 5); }
-    | WITH       { $$ = pnstrdup($1, 4); }
-    | XOR        { $$ = pnstrdup($1, 3); }
-    | YIELD      { $$ = pnstrdup($1, 5); }
+    ALL            { $$ = pnstrdup($1, 3); }
+    | ANALYZE      { $$ = pnstrdup($1, 7); }
+    | AND          { $$ = pnstrdup($1, 3); }
+    | AS           { $$ = pnstrdup($1, 2); }
+    | ASC          { $$ = pnstrdup($1, 3); }
+    | ASCENDING    { $$ = pnstrdup($1, 9); }
+    | BETWEEN      { $$ = pnstrdup($1, 7); }
+    | BY           { $$ = pnstrdup($1, 2); }
+    | CALL         { $$ = pnstrdup($1, 4); }
+    | CASE         { $$ = pnstrdup($1, 4); }
+    | CENTURY      { $$ = pnstrdup($1, 7); }
+    | COALESCE     { $$ = pnstrdup($1, 8); }
+    | CONTAINS     { $$ = pnstrdup($1, 8); }
+    | CREATE       { $$ = pnstrdup($1, 6); }
+    | DATE         { $$ = pnstrdup($1, 4); }
+    | DAY          { $$ = pnstrdup($1, 3); }
+    | DECADE       { $$ = pnstrdup($1, 6); }
+    | DELETE       { $$ = pnstrdup($1, 6); }
+    | DESC         { $$ = pnstrdup($1, 4); }
+    | DESCENDING   { $$ = pnstrdup($1, 10); }
+    | DETACH       { $$ = pnstrdup($1, 6); }
+    | DISTINCT     { $$ = pnstrdup($1, 8); }
+    | DOW          { $$ = pnstrdup($1, 3); }
+    | DOY          { $$ = pnstrdup($1, 3); }
+    | ELSE         { $$ = pnstrdup($1, 4); }
+    | ENDS         { $$ = pnstrdup($1, 4); }
+    | EPOCH        { $$ = pnstrdup($1, 5); }
+    | EXISTS       { $$ = pnstrdup($1, 6); }
+    | EXTRACT      { $$ = pnstrdup($1, 7); }
+    | EXPLAIN      { $$ = pnstrdup($1, 7); }
+    | FROM         { $$ = pnstrdup($1, 4); }
+    | HOUR         { $$ = pnstrdup($1, 4); }
+    | IN           { $$ = pnstrdup($1, 2); }
+    | INTERVAL     { $$ = pnstrdup($1, 8); }
+    | IS           { $$ = pnstrdup($1, 2); }
+    | JULIAN       { $$ = pnstrdup($1, 6); }
+    | LIMIT        { $$ = pnstrdup($1, 6); }
+    | MATCH        { $$ = pnstrdup($1, 6); }
+    | MERGE        { $$ = pnstrdup($1, 6); }
+    | MICROSECONDS { $$ = pnstrdup($1, 12); }
+    | MILLENIUM    { $$ = pnstrdup($1, 9); }
+    | MILLISECONDS { $$ = pnstrdup($1, 12); }
+    | MINUTE       { $$ = pnstrdup($1, 6); }
+    | MONTH        { $$ = pnstrdup($1, 5); }
+    | NOT          { $$ = pnstrdup($1, 3); }
+    | OPTIONAL     { $$ = pnstrdup($1, 8); }
+    | OR           { $$ = pnstrdup($1, 2); }
+    | ORDER        { $$ = pnstrdup($1, 5); }
+    | REMOVE       { $$ = pnstrdup($1, 6); }
+    | RETURN       { $$ = pnstrdup($1, 6); }
+    | SECOND       { $$ = pnstrdup($1, 6); } 
+    | SET          { $$ = pnstrdup($1, 3); }
+    | SKIP         { $$ = pnstrdup($1, 4); }
+    | STARTS       { $$ = pnstrdup($1, 6); }
+    | SYMMETRIC    { $$ = pnstrdup($1, 9); }
+    | TIME         { $$ = pnstrdup($1, 4); }
+    | TIMESTAMP    { $$ = pnstrdup($1, 9); }
+    | TIMESTAMPTZ  { $$ = pnstrdup($1, 11); }
+    | THEN         { $$ = pnstrdup($1, 4); }
+    | UNION        { $$ = pnstrdup($1, 5); }
+    | WHEN         { $$ = pnstrdup($1, 4); }
+    | VERBOSE      { $$ = pnstrdup($1, 7); }
+    | WHERE        { $$ = pnstrdup($1, 5); }
+    | WITH         { $$ = pnstrdup($1, 4); }
+    | XOR          { $$ = pnstrdup($1, 3); }
+    | YEAR         { $$ = pnstrdup($1, 4); }
+    | YIELD        { $$ = pnstrdup($1, 5); }
     ;
 
 conflicted_keywords:

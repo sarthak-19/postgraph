@@ -3911,8 +3911,6 @@ STABLE
 PARALLEL SAFE
 AS 'MODULE_PATHNAME';
 
-
-
 /*
 CREATE FUNCTION ag_catalog.age_current_time()
 RETURNS agtype
@@ -3928,6 +3926,28 @@ STABLE
 PARALLEL SAFE
 AS 'MODULE_PATHNAME', 'age_current_time_wprecision';
 */
+
+CREATE FUNCTION age_date_part(agtype, agtype)
+RETURNS agtype
+LANGUAGE c
+IMMUTABLE
+PARALLEL SAFE
+AS 'MODULE_PATHNAME';
+
+CREATE FUNCTION age_extract(agtype, agtype)
+RETURNS agtype
+LANGUAGE c
+IMMUTABLE
+PARALLEL SAFE
+AS 'MODULE_PATHNAME';
+
+CREATE FUNCTION age_overlap(agtype, agtype, agtype, agtype)
+RETURNS agtype
+LANGUAGE c
+IMMUTABLE
+CALLED ON NULL INPUT
+PARALLEL SAFE
+AS 'MODULE_PATHNAME';
 --
 -- aggregate function components for stdev(internal, agtype)
 -- and stdevp(internal, agtype)
