@@ -2085,25 +2085,10 @@ static cypher_relationship *build_VLE_relation(List *left_arg, cypher_relationsh
         args = lappend(args, make_null_const(-1));
     }
 
-    /*
-     * Create a variable name for the end vertex if we have a label
-     * name or props but we don't have a variable name.
-     *
-     * For example: ()-[*]-(:label) or ()-[*]-({name: "John"})
-     *
-     * We need this so the addition of match_vle_terminal_edge is
-     * done in the transform phase.
-     */
-    if (cnr->name == NULL && (cnr->label != NULL || cnr->props != NULL))
+    if (cnr->name == NULL)
         cnr->name = create_unique_name("_vle_function_end_var");
 
-    /*
-     * We need a NULL for the target vertex in the VLE match to
-     * force the dfs_find_a_path_from algorithm. However, for now,
-     * the default will be to only do that when a target isn't
-     * supplied.
-     */
-    if (cnl->name == NULL && cnr->name != NULL)
+    if (cnl->name == NULL)
     {
         cref = makeNode(ColumnRef);
         cref->fields = list_make2(makeString(cnr->name), makeString("id"));

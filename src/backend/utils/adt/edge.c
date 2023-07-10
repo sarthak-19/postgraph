@@ -144,7 +144,29 @@ build_edge(PG_FUNCTION_ARGS) {
 
     AG_RETURN_EDGE(v);
 }
-       
+    
+/*
+ * Equality Operators (=, <>)
+ */
+PG_FUNCTION_INFO_V1(edge_eq);
+Datum
+edge_eq(PG_FUNCTION_ARGS) {
+    edge *lhs = AG_GET_ARG_EDGE(0);
+    edge *rhs = AG_GET_ARG_EDGE(1);
+
+    PG_RETURN_BOOL((int64)lhs->children[0] == (int64)rhs->children[0]);
+}
+
+PG_FUNCTION_INFO_V1(edge_ne);
+Datum
+edge_ne(PG_FUNCTION_ARGS) {
+    edge *lhs = AG_GET_ARG_EDGE(0);
+    edge *rhs = AG_GET_ARG_EDGE(1);
+
+    PG_RETURN_BOOL((int64)lhs->children[0] != (int64)rhs->children[0]);
+}
+
+
 /*
  * Functions
  */

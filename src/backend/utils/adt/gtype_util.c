@@ -280,6 +280,7 @@ int compare_gtype_containers_orderability(gtype_container *a,
                 case AGTV_EDGE:
                 case AGTV_VERTEX:
                 case AGTV_PATH:
+	        case AGTV_PARTIAL_PATH:
                     res = compare_gtype_scalar_values(&va, &vb);
                     break;
                 case AGTV_ARRAY:
@@ -1621,6 +1622,7 @@ int compare_gtype_scalar_values(gtype_value *a, gtype_value *b)
                 return -1;
         }
         case AGTV_PATH:
+	case AGTV_PARTIAL_PATH:
         {
             int i;
 

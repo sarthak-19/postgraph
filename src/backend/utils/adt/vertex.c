@@ -120,7 +120,29 @@ build_vertex(PG_FUNCTION_ARGS) {
 
     AG_RETURN_VERTEX(v);
 }
-       
+   
+/*
+ * Equality Operators (=, <>)
+ */
+PG_FUNCTION_INFO_V1(vertex_eq);
+Datum
+vertex_eq(PG_FUNCTION_ARGS) {
+    vertex *lhs = AG_GET_ARG_VERTEX(0);
+    vertex *rhs = AG_GET_ARG_VERTEX(1);
+
+    PG_RETURN_BOOL((int64)lhs->children[0] == (int64)rhs->children[0]);
+}
+
+PG_FUNCTION_INFO_V1(vertex_ne);
+Datum
+vertex_ne(PG_FUNCTION_ARGS) {
+    vertex *lhs = AG_GET_ARG_VERTEX(0);
+    vertex *rhs = AG_GET_ARG_VERTEX(1);
+
+    PG_RETURN_BOOL((int64)lhs->children[0] != (int64)rhs->children[0]);
+}
+
+
 /*
  * Operators
  *

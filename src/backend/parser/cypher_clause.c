@@ -1845,26 +1845,16 @@ static ParseNamespaceItem *append_VLE_Func_to_FromClause(cypher_parsestate *cpst
     List *namespace = NULL;
     int rtindex;
 
-    /*
-     * Following PG's FROM clause logic, just in case we need to expand it in
-     * the future, we process the items in another function.
-     */
     n = transform_VLE_Function(cpstate, n, &rte, &rtindex, &namespace);
-
-    /* this should not happen */
     Assert(n != NULL);
 
-    /* verify there aren't any conflicts */
     checkNameSpaceConflicts(pstate, pstate->p_namespace, namespace);
 
-    /* mark the new namespace items as visible only to LATERAL */
     setNamespaceLateralState(namespace, true, true);
 
-    /* add the entry to the joinlist and namespace */
     pstate->p_joinlist = lappend(pstate->p_joinlist, n);
     pstate->p_namespace = list_concat(pstate->p_namespace, namespace);
 
-    /* make all namespace items unconditionally visible */
     setNamespaceLateralState(pstate->p_namespace, false, true);
 
     return lfirst(list_head(namespace));
@@ -2029,7 +2019,12 @@ static FuncCall *prevent_duplicate_edges(cypher_parsestate *cpstate, List *entit
 
             edges = lappend(edges, edge);
         } else if (entity->type == ENT_VLE_EDGE) {
-            edges = lappend(edges, entity->expr);
+            ParseNamespaceItem *pnsi;
+            pnsi = find_pnsi(cpstate, get_entity_name(entity));
+            Node *node = scanNSItemForColumn(cpstate, pnsi, 0, "edges", -1);
+            edges = lappend(edges, node);
+
+            //edges = lappend(edges, entity->expr);
         }
     }
 
@@ -2105,26 +2100,44 @@ static List *make_join_condition_for_edge(cypher_parsestate *cpstate, transform_
             return NIL;
 
         if (prev_node->in_join_tree) {
-            Node *op = makeSimpleA_Expr(AEXPR_OP, "!!!=", (Node *)make_qual(cpstate, prev_node, "id"), entity->expr, -1);
-	    quals = lappend(quals, op);
+	    cypher_relationship *rel = entity->entity.rel;
 
-	    op = makeSimpleA_Expr(AEXPR_OP, "!!!!=", (Node *)make_qual(cpstate, next_node, "id"), entity->expr, -1);
 
-            quals = lappend(quals, op);
+            ParseNamespaceItem *pnsi;
+            pnsi = find_pnsi(cpstate, get_entity_name(entity));
+            Node *prev_id = (Node *)make_qual(cpstate, prev_node, "id");
+            Node *next_id = (Node *)make_qual(cpstate, next_node, "id");
+            Node *edges_var = scanNSItemForColumn(cpstate, pnsi, 0, "edges", -1);
+
+	    if (rel->dir == CYPHER_REL_DIR_RIGHT) {
+                Node *op = makeSimpleA_Expr(AEXPR_OP, "!>=", prev_id, edges_var, -1);
+	        quals = lappend(quals, op);
+
+	        op = makeSimpleA_Expr(AEXPR_OP, "@>=", next_id, edges_var, -1);
+                quals = lappend(quals, op);
+	    } else if (rel->dir == CYPHER_REL_DIR_LEFT) {
+                Node *op = makeSimpleA_Expr(AEXPR_OP, "!<=", prev_id, edges_var, -1);
+                quals = lappend(quals, op);
+
+                op = makeSimpleA_Expr(AEXPR_OP, "@<=", next_id, edges_var, -1);
+                quals = lappend(quals, op);
+
+	    } else {
+                Node *first_qual = makeBoolExpr(AND_EXPR, 
+				    list_make2(
+				makeSimpleA_Expr(AEXPR_OP, "!>=", prev_id, edges_var, -1),
+		                makeSimpleA_Expr(AEXPR_OP, "@>=", next_id, edges_var, -1)), -1);
+				     
+               Node *second_qual = makeBoolExpr(AND_EXPR,
+					list_make2(
+					    makeSimpleA_Expr(AEXPR_OP, "!<=", prev_id, edges_var, -1),
+                                            makeSimpleA_Expr(AEXPR_OP, "@<=", next_id, edges_var, -1)), -1);
+
+               Node *or_qual = makeBoolExpr(OR_EXPR, list_make2(first_qual, second_qual), -1);
+
+               return list_make1(or_qual);
+	    }
       	}
-
-        /*
-         * When the previous node is not in the join tree, but there is a vle
-         * edge before that join, then we need to compare this vle's start node
-         * against the previous vle's end node. No need to check the next edge,
-         * because that would be redundent.
-         */
-        if (!prev_node->in_join_tree && prev_edge != NULL && prev_edge->type == ENT_VLE_EDGE) {
-            ParseState *pstate = (ParseState *)cpstate;
-            Node *last_srf = pstate->p_last_srf;
-            Node *op = make_op(pstate, makeString("!!="), prev_edge->expr, entity->expr, last_srf, -1);
-            quals = lappend(quals, op);
-        }
 
         return quals;
     }
@@ -2238,7 +2251,7 @@ static List *join_to_entity(cypher_parsestate *cpstate, transform_entity *entity
             expr = makeSimpleA_Expr(AEXPR_OP, "=", qual, linitial(edge_quals), -1);
 
         quals = lappend(quals, expr);
-    } else if (entity->type == ENT_VLE_EDGE) {
+    } else if (entity->type == ENT_VLE_EDGE) {;
        quals = lappend(quals, makeSimpleA_Expr(AEXPR_OP, "!@=", entity->expr, qual, -1));
     } else {
         ereport(ERROR,
@@ -2404,6 +2417,8 @@ static transform_entity *transform_VLE_edge_entity(cypher_parsestate *cpstate, c
     func = (FuncCall*)rel->varlen;
 
     Assert(list_length(func->funcname) == 1);
+    if (!rel->name )
+            rel->name = get_next_default_alias(cpstate);
 
     rf = makeNode(RangeFunction);
     rf->lateral = false;
@@ -2413,7 +2428,7 @@ static transform_entity *transform_VLE_edge_entity(cypher_parsestate *cpstate, c
 
     // Build an alias for the RangeFunction. This is needed so we* can chain VLEs together
     alias = makeNode(Alias);
-    alias->aliasname = get_next_default_alias(cpstate);
+    alias->aliasname = rel->name;
     alias->colnames = NIL;
     rf->alias = alias;
 
@@ -2423,20 +2438,9 @@ static transform_entity *transform_VLE_edge_entity(cypher_parsestate *cpstate, c
     // Get the var node for the VLE functions column name.
     var = scanNSItemForColumn(pstate, pnsi, 0, "edges", -1);
 
-    if (rel->name) {
-        FuncExpr *fexpr;
-        List *args = list_make1(var);
-        Oid func_oid = InvalidOid;
+    te = makeTargetEntry((Expr*)var, pstate->p_next_resno++, rel->name, false);
+    query->targetList = lappend(query->targetList, te);
 
-        func_oid = get_ag_func_oid("age_materialize_vle_edges", 1, GTYPEOID);
-
-        fexpr = makeFuncExpr(func_oid, GTYPEOID, args, InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
-
-        te = makeTargetEntry((Expr*)fexpr, pstate->p_next_resno++, rel->name, false);
-        query->targetList = lappend(query->targetList, te);
-    }
-
-    // Make a transform entity for the vle.
     vle_entity = make_transform_entity(cpstate, ENT_VLE_EDGE, (Node *)rel, (Expr *)var);
 
     // return the vle entity

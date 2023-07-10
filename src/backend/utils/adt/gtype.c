@@ -617,7 +617,10 @@ void gtype_put_escaped_value(StringInfo out, gtype_value *scalar_val)
         gtype_put_array(out, scalar_val);
         appendBinaryStringInfo(out, "::path", 6);
         break;
-
+    case AGTV_PARTIAL_PATH:
+        gtype_put_array(out, scalar_val);
+        appendBinaryStringInfo(out, "::partial_path", 6);
+        break;
     default:
         elog(ERROR, "unknown gtype scalar type");
     }
@@ -1542,10 +1545,6 @@ gtype_value *integer_to_gtype_value(int64 int_value)
 }
 
 PG_FUNCTION_INFO_V1(_gtype_build_path);
-
-/*
- * SQL function gtype_build_path(VARIADIC gtype)
- */
 Datum _gtype_build_path(PG_FUNCTION_ARGS)
 {
     gtype_in_state result;
@@ -1560,48 +1559,14 @@ Datum _gtype_build_path(PG_FUNCTION_ARGS)
     nargs = extract_variadic_args(fcinfo, 0, true, &args, &types, &nulls);
 
     if (nargs < 1)
-    {
         ereport(ERROR,
                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                  errmsg("paths require at least 1 vertex")));
-    }
-
-    /*
-     * If this path is only 1 to 3 elements in length, check to see if the
-     * contained edge is actually a path (made by the VLE). If so, just
-     * materialize the vle path because it already contains the two outside
-     * vertices.
-     */
-    if (nargs >= 1 && nargs <= 3)
-    {
-        int i = 0;
-
-        for (i = 0; i < nargs; i++)
-        {
-            gtype *agt = NULL;
-
-            if (nulls[i] || types[i] != GTYPEOID)
-            {
-                break;
-            }
-
-            agt = DATUM_GET_GTYPE_P(args[i]);
-
-            if (AGT_ROOT_IS_BINARY(agt) &&
-                AGT_ROOT_BINARY_FLAGS(agt) == AGT_FBINARY_TYPE_VLE_PATH)
-            {
-                gtype *path = gtype_value_to_gtype(agtv_materialize_vle_path(agt));
-                PG_RETURN_POINTER(path);
-            }
-        }
-    }
 
     if (nargs % 2 == 0)
-    {
         ereport(ERROR,
                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                  errmsg("a path is of the form: [vertex, (edge, vertex)*i] where i >= 0")));
-    }
 
     /* initialize the result */
     memset(&result, 0, sizeof(gtype_in_state));
@@ -1615,91 +1580,65 @@ Datum _gtype_build_path(PG_FUNCTION_ARGS)
         gtype *agt = NULL;
 
         if (nulls[i])
-        {
             ereport(ERROR,
                     (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                      errmsg("argument %d must not be null", i + 1)));
-        }
         else if (types[i] != GTYPEOID)
-        {
-
             ereport(ERROR,
                     (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                      errmsg("argument %d must be an gtype", i + 1)));
-        }
 
         /* get the gtype pointer */
         agt = DATUM_GET_GTYPE_P(args[i]);
 
-        /* is this a VLE path edge */
-        if (i % 2 == 1 &&
-            AGT_ROOT_IS_BINARY(agt) &&
-            AGT_ROOT_BINARY_FLAGS(agt) == AGT_FBINARY_TYPE_VLE_PATH)
-        {
-            gtype_value *agtv_path = NULL;
-            int j = 0;
-
-            /* get the VLE path from the container as an gtype_value */
-            agtv_path = agtv_materialize_vle_path(agt);
-
-            /* it better be an AGTV_PATH */
-            Assert(agtv_path->type == AGTV_PATH);
-
-            /*
-             * If the VLE path is the zero boundary case, there isn't an edge to
-             * process. Additionally, the start and end vertices are the same.
-             * We need to flag this condition so that we can skip processing the
-             * following vertex.
-             */
-            if (agtv_path->val.array.num_elems == 1)
-            {
-                is_zero_boundary_case = true;
-                continue;
-            }
-
+        if (i % 2 == 1 && (AGT_ROOT_IS_BINARY(agt) && AGT_ROOT_BINARY_FLAGS(agt) == AGT_FBINARY_TYPE_VLE_PATH)) {
+            gtype_value *agtv_path = agtv_materialize_vle_path(agt);
             /*
              * Add in the interior path - excluding the start and end vertices.
              * The other iterations of the for loop has handled start and will
              * handle end.
              */
-            for (j = 1; j <= agtv_path->val.array.num_elems - 2; j++)
-            {
-                result.res = push_gtype_value(&result.parse_state, WAGT_ELEM,
-                                               &agtv_path->val.array.elems[j]);
+            for (int j = 1; j <= agtv_path->val.array.num_elems - 2; j++) {
+                result.res = push_gtype_value(&result.parse_state, WAGT_ELEM, &agtv_path->val.array.elems[j]);
             }
         }
-        else if (i % 2 == 1 && (!AGTE_IS_GTYPE(agt->root.children[0]) ||
-                                agt->root.children[1] != AGT_HEADER_EDGE))
+        if (i % 2 == 1 && (AGT_IS_PARTIAL_PATH(agt))) {
+            gtype *agtv_path = agt;
+
+            gtype_iterator *it = NULL;
+            gtype_iterator_token tok;
+            gtype_parse_state *parse_state = NULL;
+            gtype_value *r = NULL;
+            //offset container by the extended type header
+            char *container_base = &agt->root.children[2];
+
+            r = palloc(sizeof(gtype_value));
+
+            it = gtype_iterator_init((gtype_container *)container_base);
+            tok = gtype_iterator_next(&it, r, true);
+            while ((tok = gtype_iterator_next(&it, r, true)) != WAGT_END_ARRAY) {
+                result.res = push_gtype_value(&result.parse_state, tok, tok < WAGT_BEGIN_ARRAY ? r : NULL);
+            }
+
+
+        }
+        else if (i % 2 == 1 && (!AGTE_IS_GTYPE(agt->root.children[0]) || agt->root.children[1] != AGT_HEADER_EDGE))
         {
             ereport(ERROR,
                     (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                      errmsg("paths consist of alternating vertices and edges"),
                      errhint("argument %d must be an edge", i + 1)));
         }
-        else if (i % 2 == 0 && (!AGTE_IS_GTYPE(agt->root.children[0]) ||
-                                agt->root.children[1] != AGT_HEADER_VERTEX))
+        else if (i % 2 == 0 && (!AGTE_IS_GTYPE(agt->root.children[0]) || agt->root.children[1] != AGT_HEADER_VERTEX))
         {
             ereport(ERROR,
                     (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                      errmsg("paths consist of alternating vertices and edges"),
                      errhint("argument %d must be an vertex", i + 1)));
         }
-        /*
-         * This will always add in vertices or edges depending on the loop
-         * iteration. However, when it is a vertex, there is the possibility
-         * that the previous iteration flagged a zero boundary case. We can only
-         * add it if this is not the case. If this is an edge, it is not
-         * possible to be a zero boundary case.
-         */
-        else if (is_zero_boundary_case == false)
+        else 
         {
-            add_gtype(GTYPE_P_GET_DATUM(agt), false, &result, types[i],
-                       false);
-        }
-        /* If we got here, we had a zero boundary case. So, clear it */
-        else
-        {
-            is_zero_boundary_case = false;
+            add_gtype(GTYPE_P_GET_DATUM(agt), false, &result, types[i], false);
         }
     }
 

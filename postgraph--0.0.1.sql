@@ -136,6 +136,14 @@ CREATE FUNCTION build_vertex(graphid, cstring, gtype) RETURNS vertex LANGUAGE c 
 CREATE TYPE vertex (INPUT = vertex_in, OUTPUT = vertex_out, LIKE = jsonb);
 
 --
+-- vertex - equality operators (=, <>)
+--
+CREATE FUNCTION vertex_eq(vertex, vertex) RETURNS boolean LANGUAGE c IMMUTABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR = (FUNCTION = vertex_eq, LEFTARG = vertex, RIGHTARG = vertex, COMMUTATOR = =, NEGATOR = <>, RESTRICT = eqsel, JOIN = eqjoinsel, HASHES, MERGES);
+CREATE FUNCTION vertex_ne(vertex, vertex) RETURNS boolean LANGUAGE c IMMUTABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR <> (FUNCTION = vertex_ne, LEFTARG = vertex, RIGHTARG = vertex, COMMUTATOR = <>, NEGATOR = =, RESTRICT = neqsel, JOIN = neqjoinsel);
+
+--
 -- vertex - access operators (->, ->> )
 --
 CREATE FUNCTION vertex_property_access(vertex, text) RETURNS gtype LANGUAGE c IMMUTABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
@@ -178,6 +186,14 @@ CREATE FUNCTION edge_out(edge) RETURNS cstring LANGUAGE c IMMUTABLE RETURNS NULL
 CREATE FUNCTION build_edge(graphid, graphid, graphid, cstring, gtype) RETURNS edge LANGUAGE c IMMUTABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
 
 CREATE TYPE edge (INPUT = edge_in, OUTPUT = edge_out, LIKE = jsonb);
+
+--
+-- edge equality operators
+--
+CREATE FUNCTION edge_eq(edge, edge) RETURNS boolean LANGUAGE c IMMUTABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR = (FUNCTION = edge_eq, LEFTARG = edge, RIGHTARG = edge, COMMUTATOR = =, NEGATOR = <>, RESTRICT = eqsel, JOIN = eqjoinsel, HASHES, MERGES);
+CREATE FUNCTION edge_ne(edge, edge) RETURNS boolean LANGUAGE c IMMUTABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR <> (FUNCTION = edge_ne, LEFTARG = edge, RIGHTARG = edge, COMMUTATOR = <>, NEGATOR = =, RESTRICT = neqsel, JOIN = neqjoinsel);
 
 --
 -- edge functions
@@ -327,7 +343,7 @@ CREATE FUNCTION _gtype_build_edge(graphid, graphid, graphid, cstring, gtype) RET
 --
 -- MATCH edge uniqueness
 --
-CREATE FUNCTION _ag_enforce_edge_uniqueness(VARIADIC "any") RETURNS bool LANGUAGE c IMMUTABLE PARALLEL SAFE as 'MODULE_PATHNAME';
+CREATE FUNCTION _ag_enforce_edge_uniqueness(VARIADIC "any") RETURNS bool LANGUAGE c IMMUTABLE PARALLEL SAFE RETURNS NULL ON NULL INPUT as 'MODULE_PATHNAME';
 
 --
 -- gtype - map literal (`{key: expr, ...}`)
@@ -558,23 +574,40 @@ CREATE AGGREGATE age_collect(gtype) (stype = internal, sfunc = age_collect_aggtr
 CREATE FUNCTION age_vle(IN gtype, IN gtype, IN gtype, IN gtype, IN gtype, IN gtype, IN gtype, OUT edges gtype) RETURNS SETOF gtype LANGUAGE C STABLE CALLED ON NULL INPUT PARALLEL UNSAFE AS 'MODULE_PATHNAME';
 -- TODO: remove
 CREATE FUNCTION age_build_vle_match_edge(gtype, gtype) RETURNS gtype LANGUAGE C IMMUTABLE PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE FUNCTION age_materialize_vle_edges(gtype) RETURNS gtype LANGUAGE C IMMUTABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE FUNCTION age_match_vle_edge_to_id_qual(gtype, graphid) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR !@= (FUNCTION = age_match_vle_edge_to_id_qual, LEFTARG = gtype, RIGHTARG = graphid);
-
 CREATE FUNCTION age_match_vle_terminal_edge_start("any", gtype) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR !!!= (FUNCTION = age_match_vle_terminal_edge_start, LEFTARG = "any", RIGHTARG = gtype);
-
+CREATE OPERATOR !>= (FUNCTION = age_match_vle_terminal_edge_start, LEFTARG = "any", RIGHTARG = gtype);
 CREATE FUNCTION age_match_vle_terminal_edge_end("any", gtype) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR !!!!= (FUNCTION = age_match_vle_terminal_edge_end, LEFTARG = "any", RIGHTARG = gtype);
+CREATE OPERATOR @>= (FUNCTION = age_match_vle_terminal_edge_end, LEFTARG = "any", RIGHTARG = gtype);
+CREATE FUNCTION age_match_vle_terminal_edge_left_check_end("any", gtype) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR !<= (FUNCTION = age_match_vle_terminal_edge_left_check_end, LEFTARG = "any", RIGHTARG = gtype);
+CREATE FUNCTION age_match_vle_terminal_right_check_start("any", gtype) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR @<= (FUNCTION = age_match_vle_terminal_right_check_start, LEFTARG = "any", RIGHTARG = gtype);
+
+
+
+CREATE FUNCTION gid_is_first_startid(graphid, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR !>= (FUNCTION = gid_is_first_startid, LEFTARG = graphid, RIGHTARG = variable_edge);
+
+CREATE FUNCTION vertex_is_first_start_vertex(vertex, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR !>= (FUNCTION = vertex_is_first_start_vertex, LEFTARG = vertex, RIGHTARG = variable_edge);
+
+CREATE FUNCTION gid_is_first_endid(graphid, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR @>= (FUNCTION = gid_is_first_endid, LEFTARG = graphid, RIGHTARG = variable_edge);
+CREATE FUNCTION vertex_is_first_end_vertex(vertex, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR @>= (FUNCTION = vertex_is_first_end_vertex, LEFTARG = vertex, RIGHTARG = variable_edge);
 
 /*
- * MATCH ()-[*]-()-[*]-()
- */
-CREATE FUNCTION match_vles(gtype, gtype) RETURNS boolean LANGUAGE C IMMUTABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR !!= (FUNCTION = match_vles, LEFTARG = gtype, RIGHTARG = gtype);
+CREATE FUNCTION gid_is_last_startid(graphid, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR !<= (FUNCTION = gid_is_last_startid, LEFTARG = graphid, RIGHTARG = variable_edge);
+CREATE FUNCTION vertex_is_last_start_vertex(vertex, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR !<= (FUNCTION = vertex_is_last_start_vertex, LEFTARG = vertex, RIGHTARG = variable_edge);
 
 
+CREATE FUNCTION gid_is_last_endid(graphid, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR @<= (FUNCTION = gid_is_last_endid, LEFTARG = graphid, RIGHTARG = variable_edge);
+CREATE FUNCTION vertex_is_last_end_vertex(vertex, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR @<= (FUNCTION = vertex_is_last_end_vertex, LEFTARG = vertex, RIGHTARG = variable_edge);
+*/
 
 --
 -- End

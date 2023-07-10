@@ -100,6 +100,51 @@ build_variable_edge(PG_FUNCTION_ARGS) {
     AG_RETURN_VARIABLE_EDGE(p);
 }
 
+/*
+ * Comparison Operators
+ */
+PG_FUNCTION_INFO_V1(gid_is_first_startid);
+Datum gid_is_first_startid(PG_FUNCTION_ARGS) {
+    graphid id = AG_GETARG_GRAPHID(0);
+    VariableEdge *ve = AG_GET_ARG_VARIABLE_EDGE(1);
+
+    edge *e =  &ve->children[1];
+
+    PG_RETURN_BOOL((int64)e->children[2] == id);
+}
+
+PG_FUNCTION_INFO_V1(vertex_is_first_start_vertex);
+Datum vertex_is_first_start_vertex(PG_FUNCTION_ARGS) {
+    vertex *v = AG_GETARG_GRAPHID(0);
+    VariableEdge *ve = AG_GET_ARG_VARIABLE_EDGE(1);
+
+    edge *e =  &ve->children[1];
+
+    PG_RETURN_BOOL((int64)e->children[2] == (int64)v->children[0]);
+}
+
+PG_FUNCTION_INFO_V1(gid_is_first_endid);
+Datum gid_is_first_endid(PG_FUNCTION_ARGS) {
+    graphid id = AG_GETARG_GRAPHID(0);
+    VariableEdge *ve = AG_GET_ARG_VARIABLE_EDGE(1);
+
+    edge *e =  &ve->children[1];
+
+    PG_RETURN_BOOL((int64)e->children[4] == id);
+}
+
+PG_FUNCTION_INFO_V1(vertex_is_first_end_vertex);
+Datum vertex_is_first_end_vertex(PG_FUNCTION_ARGS) {
+    vertex *v = AG_GETARG_GRAPHID(0);
+    VariableEdge *ve = AG_GET_ARG_VARIABLE_EDGE(1);
+
+    edge *e =  &ve->children[1];
+
+    PG_RETURN_BOOL((int64)e->children[4] == (int64)v->children[0]);
+}
+
+
+
 static void
 append_to_buffer(StringInfo buffer, const char *data, int len) {
     int offset = reserve_from_buffer(buffer, len);

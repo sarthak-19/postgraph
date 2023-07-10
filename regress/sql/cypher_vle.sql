@@ -121,42 +121,16 @@ SELECT * FROM cypher('cypher_vle', $$MATCH p=(u:begin)<-[e*]-(v:end) RETURN e $$
 SELECT * FROM cypher('cypher_vle', $$MATCH p=(:begin)<-[*]-()<-[]-(:end) RETURN p $$) AS (e gtype);
 -- Each should return 31
 SELECT count(*) FROM cypher('cypher_vle', $$ MATCH ()-[e1]->(v)-[e2]->() RETURN e1,e2 $$) AS (e1 gtype, e2 gtype);
-SELECT count(*) FROM cypher('cypher_vle', $$
-	MATCH ()-[e1*1..1]->(v)-[e2*1..1]->()
-	RETURN e1, e2
+SELECT count(*) FROM cypher('cypher_vle', $$ MATCH ()-[e1*1..1]->(v)-[e2*1..1]->() RETURN e1, e2 $$) AS (e1 gtype, e2 gtype);
+SELECT count(*) FROM cypher('cypher_vle', $$ MATCH (v)-[e1*1..1]->()-[e2*1..1]->() RETURN e1, e2 $$) AS (e1 gtype, e2 gtype);
+SELECT count(*) FROM cypher('cypher_vle', $$ MATCH ()-[e1]->(v)-[e2*1..1]->() RETURN e1, e2 $$) AS (e1 gtype, e2 gtype);
+SELECT count(*) FROM cypher('cypher_vle', $$ MATCH ()-[e1]->()-[e2*1..1]->() RETURN e1, e2 $$) AS (e1 gtype, e2 gtype);
+SELECT count(*) FROM cypher('cypher_vle', $$ MATCH ()-[e1*1..1]->(v)-[e2]->() RETURN e1, e2
 $$) AS (e1 gtype, e2 gtype);
-SELECT count(*) FROM cypher('cypher_vle', $$
-	MATCH (v)-[e1*1..1]->()-[e2*1..1]->()
-	RETURN e1, e2
-$$) AS (e1 gtype, e2 gtype);
-SELECT count(*) FROM cypher('cypher_vle', $$
-	MATCH ()-[e1]->(v)-[e2*1..1]->()
-	RETURN e1, e2
-$$) AS (e1 gtype, e2 gtype);
-SELECT count(*) FROM cypher('cypher_vle', $$
-    MATCH ()-[e1]->()-[e2*1..1]->()
-    RETURN e1, e2
-$$) AS (e1 gtype, e2 gtype);
-SELECT count(*) FROM cypher('cypher_vle', $$
-	MATCH ()-[e1*1..1]->(v)-[e2]->()
-	RETURN e1, e2
-$$) AS (e1 gtype, e2 gtype);
-SELECT count(*) FROM cypher('cypher_vle', $$
-    MATCH ()-[e1*1..1]->()-[e2]->()
-    RETURN e1, e2
-$$) AS (e1 gtype, e2 gtype);
-SELECT count(*) FROM cypher('cypher_vle', $$
-    MATCH (a)-[e1]->(a)-[e2*1..1]->()
-    RETURN e1, e2
-$$) AS (e1 gtype, e2 gtype);
-SELECT count(*) FROM cypher('cypher_vle', $$
-        MATCH (a) MATCH (a)-[e1*1..1]->(v)
-        RETURN e1
-$$) AS (e1 gtype);
-SELECT count(*) FROM cypher('cypher_vle', $$
-        MATCH (a) MATCH ()-[e1*1..1]->(a)
-        RETURN e1
-$$) AS (e1 gtype);
+SELECT count(*) FROM cypher('cypher_vle', $$ MATCH ()-[e1*1..1]->()-[e2]->() RETURN e1, e2 $$) AS (e1 gtype, e2 gtype);
+SELECT count(*) FROM cypher('cypher_vle', $$ MATCH (a)-[e1]->(a)-[e2*1..1]->() RETURN e1, e2 $$) AS (e1 gtype, e2 gtype);
+SELECT count(*) FROM cypher('cypher_vle', $$ MATCH (a) MATCH (a)-[e1*1..1]->(v) RETURN e1 $$) AS (e1 gtype);
+SELECT count(*) FROM cypher('cypher_vle', $$ MATCH (a) MATCH ()-[e1*1..1]->(a) RETURN e1 $$) AS (e1 gtype);
 SELECT count(*)
 FROM cypher('cypher_vle', $$
     MATCH (a)-[e*1..1]->()
@@ -193,9 +167,9 @@ $$) AS (g1 gtype);
 
 /* should return 1 path with 1 edge */
 SELECT * FROM cypher('mygraph', $$
-    MATCH p = ()-[:Edge*]->()
+    MATCH  p=(a)-[e:Edge*]->(b)
     RETURN p
-$$) AS (g2 gtype);
+$$) AS (e gtype);
 
 /* should delete the original path and replace it with a path with 2 edges */
 SELECT * FROM cypher('mygraph', $$
