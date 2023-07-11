@@ -2087,13 +2087,14 @@ static List *make_join_condition_for_edge(cypher_parsestate *cpstate, transform_
      * which rows match.
      */
     if (entity->type == ENT_VLE_EDGE) {
+        List *quals = NIL;
+
         Node *left_id = NULL;
         Node *right_id = NULL;
         Value *catalog = makeString(CATALOG_SCHEMA);
         Value *func_name;
         List *qualified_func_name;
         List *args = NIL;
-        List *quals = NIL;
 
         // If the next node is not in the join tree, we don't need to make any quals.
         if (!next_node->in_join_tree)

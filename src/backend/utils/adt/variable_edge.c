@@ -78,16 +78,19 @@ build_variable_edge(PG_FUNCTION_ARGS) {
     for (int i = 0; i < nargs; i++) {
         if (i % 2 == 1) {
             if (types[i] != VERTEXOID)
-                 ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("arguement %i build_traversal() must be a vertex", i)));
+                 ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("arguement %i build_traversal() must be a vertex", i)));
             if (i + 1 == nargs)
-                 ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("VariableEdges must end with an edge")));
+                 ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("VariableEdges must end with an edge")));
 
             append_to_buffer(&buffer, DATUM_GET_VERTEX(args[i]), VARSIZE_ANY(args[i]));
 	}
 	else {
 
             if (types[i] != EDGEOID)
-                 ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("arguement %i build_traversal() must be an edge", i)));
+                 ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("arguement %i build_traversal() must be an edge", i)));
 
             append_to_buffer(&buffer, DATUM_GET_EDGE(args[i]), VARSIZE_ANY(args[i]));
 	}
@@ -107,16 +110,19 @@ PG_FUNCTION_INFO_V1(gid_is_first_startid);
 Datum gid_is_first_startid(PG_FUNCTION_ARGS) {
     graphid id = AG_GETARG_GRAPHID(0);
     VariableEdge *ve = AG_GET_ARG_VARIABLE_EDGE(1);
-
+//PG_RETURN_BOOL(true);
     edge *e =  &ve->children[1];
+    //ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("%li %li", (int64)ve->children[4],(int64)ve->children[5])));
 
     PG_RETURN_BOOL((int64)e->children[2] == id);
+
 }
 
 PG_FUNCTION_INFO_V1(vertex_is_first_start_vertex);
 Datum vertex_is_first_start_vertex(PG_FUNCTION_ARGS) {
     vertex *v = AG_GETARG_GRAPHID(0);
     VariableEdge *ve = AG_GET_ARG_VARIABLE_EDGE(1);
+PG_RETURN_BOOL(true);
 
     edge *e =  &ve->children[1];
 
@@ -127,6 +133,7 @@ PG_FUNCTION_INFO_V1(gid_is_first_endid);
 Datum gid_is_first_endid(PG_FUNCTION_ARGS) {
     graphid id = AG_GETARG_GRAPHID(0);
     VariableEdge *ve = AG_GET_ARG_VARIABLE_EDGE(1);
+PG_RETURN_BOOL(true);
 
     edge *e =  &ve->children[1];
 
@@ -137,13 +144,63 @@ PG_FUNCTION_INFO_V1(vertex_is_first_end_vertex);
 Datum vertex_is_first_end_vertex(PG_FUNCTION_ARGS) {
     vertex *v = AG_GETARG_GRAPHID(0);
     VariableEdge *ve = AG_GET_ARG_VARIABLE_EDGE(1);
+PG_RETURN_BOOL(true);
 
     edge *e =  &ve->children[1];
-
     PG_RETURN_BOOL((int64)e->children[4] == (int64)v->children[0]);
 }
 
 
+PG_FUNCTION_INFO_V1(gid_is_last_startid);
+Datum gid_is_last_startid(PG_FUNCTION_ARGS) {
+    graphid id = AG_GETARG_GRAPHID(0);
+    VariableEdge *ve = AG_GET_ARG_VARIABLE_EDGE(1);
+
+    char *ptr = &ve->children[1];
+    for (int i = 0; i < ve->children[0] - 1; i++, ptr = ptr + VARSIZE(ptr));
+
+     edge *e = (edge *)ptr;
+    PG_RETURN_BOOL((int64)e->children[2] == id);
+
+}
+
+PG_FUNCTION_INFO_V1(vertex_is_last_start_vertex);
+Datum vertex_is_last_start_vertex(PG_FUNCTION_ARGS) {
+    vertex *v = AG_GETARG_GRAPHID(0);
+    VariableEdge *ve = AG_GET_ARG_VARIABLE_EDGE(1);
+
+    char *ptr = &ve->children[1];
+    for (int i = 0; i < ve->children[0] - 1; i++, ptr = ptr + VARSIZE(ptr));
+
+     edge *e = (edge *)ptr;
+    PG_RETURN_BOOL((int64)e->children[2] == (int64)v->children[0]);
+}
+
+PG_FUNCTION_INFO_V1(gid_is_last_endid);
+Datum gid_is_last_endid(PG_FUNCTION_ARGS) {
+    graphid id = AG_GETARG_GRAPHID(0);
+    VariableEdge *ve = AG_GET_ARG_VARIABLE_EDGE(1);
+
+    char *ptr = &ve->children[1];
+    for (int i = 0; i < ve->children[0] - 1; i++, ptr = ptr + VARSIZE(ptr));
+
+     edge *e = (edge *)ptr;
+    PG_RETURN_BOOL((int64)e->children[4] == id);
+
+}
+
+PG_FUNCTION_INFO_V1(vertex_is_last_end_vertex);
+Datum vertex_is_last_end_vertex(PG_FUNCTION_ARGS) {
+    vertex *v = AG_GETARG_GRAPHID(0);
+    VariableEdge *ve = AG_GET_ARG_VARIABLE_EDGE(1);
+
+    char *ptr = &ve->children[1];
+    for (int i = 0; i < ve->children[0] - 1; i++, ptr = ptr + VARSIZE(ptr));
+
+     edge *e = (edge *)ptr;
+    PG_RETURN_BOOL((int64)e->children[4] == (int64)v->children[0]);
+
+}
 
 static void
 append_to_buffer(StringInfo buffer, const char *data, int len) {

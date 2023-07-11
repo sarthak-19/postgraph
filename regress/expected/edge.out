@@ -50,6 +50,34 @@ SELECT build_edge('1'::graphid,  '2'::graphid, '3'::graphid, $$label$$, gtype_bu
  
 (1 row)
 
+SELECT build_edge('1'::graphid, '2'::graphid, '3'::graphid, $$label$$, gtype_build_map()) =
+       build_edge('1'::graphid,  '2'::graphid, '3'::graphid, $$label$$, gtype_build_map());
+ ?column? 
+----------
+ t
+(1 row)
+
+SELECT build_edge('1'::graphid, '2'::graphid, '3'::graphid, $$label$$, gtype_build_map()) =
+       build_edge('4'::graphid,  '2'::graphid, '3'::graphid, $$label$$, gtype_build_map());
+ ?column? 
+----------
+ f
+(1 row)
+
+SELECT build_edge('1'::graphid, '2'::graphid, '3'::graphid, $$label$$, gtype_build_map()) <>
+       build_edge('1'::graphid,  '2'::graphid, '3'::graphid, $$label$$, gtype_build_map());
+ ?column? 
+----------
+ f
+(1 row)
+
+SELECT build_edge('1'::graphid, '2'::graphid, '3'::graphid, $$label$$, gtype_build_map()) <>
+       build_edge('4'::graphid,  '2'::graphid, '3'::graphid, $$label$$, gtype_build_map());
+ ?column? 
+----------
+ t
+(1 row)
+
 -- id
 SELECT id(build_edge('1'::graphid, '2'::graphid, '3'::graphid, $$label$$, gtype_build_map()));
  id 

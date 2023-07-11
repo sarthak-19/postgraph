@@ -30,8 +30,6 @@
 #include "utils/edge.h"
 
 static void append_to_buffer(StringInfo buffer, const char *data, int len);
-static gtype *extract_properties(edge *v);
-static char *extract_label(edge *v);
 
 /*
  * I/O routines for vertex type
@@ -62,11 +60,11 @@ Datum edge_out(PG_FUNCTION_ARGS) {
 
     // label
     appendStringInfoString(str, ", \"label\": \"");
-    appendStringInfoString(str, extract_label(v));
+    appendStringInfoString(str, extract_edge_label(v));
 
     // properties
     appendStringInfoString(str, "\", \"properties\": ");
-    gtype *agt = extract_properties(v);
+    gtype *agt = extract_edge_properties(v);
     gtype_to_cstring(str, &agt->root, 0);
 
 
@@ -91,11 +89,11 @@ void append_edge_to_string(StringInfoData *str, edge *v) {
 
     // label
     appendStringInfoString(str, ", \"label\": \"");
-    appendStringInfoString(str, extract_label(v));
+    appendStringInfoString(str, extract_edge_label(v));
 
     // properties
     appendStringInfoString(str, "\", \"properties\": ");
-    gtype *agt = extract_properties(v);
+    gtype *agt = extract_edge_properties(v);
     gtype_to_cstring(str, &agt->root, 0);
 
 
@@ -200,7 +198,7 @@ PG_FUNCTION_INFO_V1(edge_label);
 Datum
 edge_label(PG_FUNCTION_ARGS) {
     edge *e = AG_GET_ARG_EDGE(0);
-    char *label = extract_label(e);
+    char *label = extract_edge_label(e);
 
     Datum d = string_to_gtype(label);
 
@@ -212,7 +210,7 @@ Datum
 edge_properties(PG_FUNCTION_ARGS) {
     edge *e = AG_GET_ARG_EDGE(0);
 
-    AG_RETURN_GTYPE_P(extract_properties(e));
+    AG_RETURN_GTYPE_P(extract_edge_properties(e));
 }
 
 
@@ -222,8 +220,8 @@ append_to_buffer(StringInfo buffer, const char *data, int len) {
     memcpy(buffer->data + offset, data, len);
 }
 
-static char *
-extract_label(edge *v) {
+char *
+extract_edge_label(edge *v) {
     char *bytes = (char *)v;
     char *label_addr = &bytes[VARHDRSZ + ( 3 * sizeof(graphid)) + sizeof(agtentry)];
     int *label_length = (int *)&bytes[VARHDRSZ + ( 3 * sizeof(graphid))];
@@ -231,8 +229,8 @@ extract_label(edge *v) {
     return pnstrdup(label_addr, *label_length);
 }
 
-static gtype *
-extract_properties(edge *v) {
+gtype *
+extract_edge_properties(edge *v) {
     char *bytes = (char *)v;
     int *label_length = (int *)&bytes[VARHDRSZ + (3 * sizeof(graphid))];
 

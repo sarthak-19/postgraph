@@ -34,9 +34,14 @@
 #include "utils/numeric.h"
 #include "utils/syscache.h"
 
+#include "utils/fmgrprotos.h"
+#include "utils/varlena.h"
+
+
 #include "catalog/ag_namespace.h"
 #include "catalog/pg_type.h"
 #include "utils/graphid.h"
+#include "utils/gtype.h"
 
 /* Convenience macros */
 #define DATUM_GET_EDGE(d) ((edge *)PG_DETOAST_DATUM(d))
@@ -59,8 +64,9 @@ typedef struct
 } edge;
 
 void append_edge_to_string(StringInfoData *buffer, edge *v);
-
-
+char *extract_edge_label(edge *v);
+gtype *extract_edge_properties(edge *v);
+Datum build_edge(PG_FUNCTION_ARGS);
 
 #define EDGEOID \
     (GetSysCacheOid2(TYPENAMENSP, Anum_pg_type_oid, CStringGetDatum("edge"), ObjectIdGetDatum(postgraph_namespace_id())))

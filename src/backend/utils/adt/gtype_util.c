@@ -1578,8 +1578,7 @@ int compare_gtype_scalar_values(gtype_value *a, gtype_value *b)
         case AGTV_NULL:
             return 0;
         case AGTV_STRING:
-            return varstr_cmp(a->val.string.val, a->val.string.len,
-                              b->val.string.val, b->val.string.len,
+            return varstr_cmp(a->val.string.val, a->val.string.len, b->val.string.val, b->val.string.len,
                               DEFAULT_COLLATION_OID);
         case AGTV_NUMERIC:
             return DatumGetInt32(DirectFunctionCall2(
@@ -1600,8 +1599,7 @@ int compare_gtype_scalar_values(gtype_value *a, gtype_value *b)
             else
                 return -1;
         case AGTV_FLOAT:
-            return compare_two_floats_orderability(a->val.float_value,
-                                                   b->val.float_value);
+            return compare_two_floats_orderability(a->val.float_value, b->val.float_value);
         case AGTV_VERTEX:
         case AGTV_EDGE:
         {

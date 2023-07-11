@@ -62,6 +62,9 @@
 
 #include "utils/age_vle.h"
 #include "utils/gtype.h"
+#include "utils/edge.h"
+#include "utils/variable_edge.h"
+#include "utils/vertex.h"
 #include "utils/gtype_parser.h"
 #include "catalog/ag_graph.h"
 #include "catalog/ag_label.h"
@@ -160,6 +163,23 @@ static const gtype_value prop_key = {
     .type = AGTV_STRING,
     .val.string = {10, "properties"}
 };
+
+PG_FUNCTION_INFO_V1(gtype_build_map_noargs);
+
+/*              
+ * degenerate case of gtype_build_map where it gets 0 arguments.
+ */                 
+Datum gtype_build_map_noargs(PG_FUNCTION_ARGS)
+{   
+    gtype_in_state result;
+    
+    memset(&result, 0, sizeof(gtype_in_state));
+                                          
+    push_gtype_value(&result.parse_state, WAGT_BEGIN_OBJECT, NULL);
+    result.res = push_gtype_value(&result.parse_state, WAGT_END_OBJECT, NULL); 
+                
+    PG_RETURN_POINTER(gtype_value_to_gtype(result.res));
+}    
 
 /* fast helper function to test for AGTV_NULL in an gtype */
 bool is_gtype_null(gtype *agt_arg)
@@ -1443,8 +1463,7 @@ static void composite_to_gtype(Datum composite, gtype_in_state *result)
     tmptup.t_data = td;
     tuple = &tmptup;
 
-    result->res = push_gtype_value(&result->parse_state, WAGT_BEGIN_OBJECT,
-                                    NULL);
+    result->res = push_gtype_value(&result->parse_state, WAGT_BEGIN_OBJECT, NULL);
 
     for (i = 0; i < tupdesc->natts; i++)
     {
@@ -1552,7 +1571,7 @@ Datum _gtype_build_path(PG_FUNCTION_ARGS)
     bool *nulls = NULL;
     Oid *types = NULL;
     int nargs = 0;
-    int i = 0;
+    int i = 0, j = 0;
     bool is_zero_boundary_case = false;
 
     /* build argument values to build the object */
@@ -1583,12 +1602,38 @@ Datum _gtype_build_path(PG_FUNCTION_ARGS)
             ereport(ERROR,
                     (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                      errmsg("argument %d must not be null", i + 1)));
-        else if (types[i] != GTYPEOID)
-            ereport(ERROR,
-                    (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                     errmsg("argument %d must be an gtype", i + 1)));
 
-        /* get the gtype pointer */
+        else if (types[i] == VARIABLEEDGEOID) {
+           VariableEdge *ve = DATUM_GET_VARIABLE_EDGE(args[i]);
+
+           char *ptr = &ve->children[1];
+
+           for (j = 0; j < ve->children[0]; j++, ptr = ptr + VARSIZE(ptr)) ; {
+                if (j % 2 == 1) { //vertex
+		    vertex *v = (vertex *)ptr;
+                    graphid id = (int64)v->children[0];
+		    char *label = extract_vertex_label(v);
+		    gtype *prop = extract_vertex_properties(v);
+                    gtype *gt = make_vertex(Int64GetDatum(id), CStringGetDatum(label), DirectFunctionCall1(gtype_build_map_noargs, NULL));
+
+		    add_gtype(GTYPE_P_GET_DATUM(gt), false, &result, GTYPEOID, false);
+		} else { //edge
+	            edge *e = (edge *)ptr;
+                    graphid id = (int64)e->children[0];
+                    graphid startid = (int64)e->children[2];
+                    graphid endid = (int64)e->children[4];
+		    char *label = extract_edge_label(e);
+                    gtype *prop = extract_edge_properties(e);
+                    gtype *gt = make_edge(Int64GetDatum(id), Int64GetDatum(startid), Int64GetDatum(endid),
+		   	 	          CStringGetDatum(label), DirectFunctionCall1(gtype_build_map_noargs, NULL));
+
+		    add_gtype(GTYPE_P_GET_DATUM(gt), false, &result, GTYPEOID, false);
+		} //BlackPink
+	   }
+           continue; 
+	}
+	else if (types[i] == GTYPEOID)
+	{
         agt = DATUM_GET_GTYPE_P(args[i]);
 
         if (i % 2 == 1 && (AGT_ROOT_IS_BINARY(agt) && AGT_ROOT_BINARY_FLAGS(agt) == AGT_FBINARY_TYPE_VLE_PATH)) {
@@ -1640,6 +1685,12 @@ Datum _gtype_build_path(PG_FUNCTION_ARGS)
         {
             add_gtype(GTYPE_P_GET_DATUM(agt), false, &result, types[i], false);
         }
+	}
+	else
+            ereport(ERROR,
+                    (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                     errmsg("argument %d must be an gtype", i + 1)));
+
     }
 
     /* push the end of the array */
@@ -1725,12 +1776,10 @@ Datum _gtype_build_vertex(PG_FUNCTION_ARGS)
 
     memset(&result, 0, sizeof(gtype_in_state));
 
-    result.res = push_gtype_value(&result.parse_state, WAGT_BEGIN_OBJECT,
-                                   NULL);
+    result.res = push_gtype_value(&result.parse_state, WAGT_BEGIN_OBJECT, NULL);
 
     /* process graphid */
-    result.res = push_gtype_value(&result.parse_state, WAGT_KEY,
-                                   string_to_gtype_value("id"));
+    result.res = push_gtype_value(&result.parse_state, WAGT_KEY, string_to_gtype_value("id"));
 
     if (fcinfo->args[0].isnull)
         ereport(ERROR,
@@ -1738,43 +1787,33 @@ Datum _gtype_build_vertex(PG_FUNCTION_ARGS)
                  errmsg("_gtype_build_vertex() graphid cannot be NULL")));
 
     id = AG_GETARG_GRAPHID(0);
-    result.res = push_gtype_value(&result.parse_state, WAGT_VALUE,
-                                   integer_to_gtype_value(id));
+    result.res = push_gtype_value(&result.parse_state, WAGT_VALUE, integer_to_gtype_value(id));
 
     /* process label */
-    result.res = push_gtype_value(&result.parse_state, WAGT_KEY,
-                                   string_to_gtype_value("label"));
+    result.res = push_gtype_value(&result.parse_state, WAGT_KEY, string_to_gtype_value("label"));
 
     if (fcinfo->args[1].isnull)
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                         errmsg("_gtype_build_vertex() label cannot be NULL")));
 
-    result.res =
-        push_gtype_value(&result.parse_state, WAGT_VALUE,
-                          string_to_gtype_value(PG_GETARG_CSTRING(1)));
+    result.res = push_gtype_value(&result.parse_state, WAGT_VALUE, string_to_gtype_value(PG_GETARG_CSTRING(1)));
 
     /* process properties */
-    result.res = push_gtype_value(&result.parse_state, WAGT_KEY,
-                                   string_to_gtype_value("properties"));
+    result.res = push_gtype_value(&result.parse_state, WAGT_KEY, string_to_gtype_value("properties"));
 
     //if the properties object is null, push an empty object
     if (fcinfo->args[2].isnull)
     {
-        result.res = push_gtype_value(&result.parse_state, WAGT_BEGIN_OBJECT,
-                                       NULL);
-        result.res = push_gtype_value(&result.parse_state, WAGT_END_OBJECT,
-                                       NULL);
+        result.res = push_gtype_value(&result.parse_state, WAGT_BEGIN_OBJECT, NULL);
+        result.res = push_gtype_value(&result.parse_state, WAGT_END_OBJECT, NULL);
     }
     else
     {
         gtype *properties = AG_GET_ARG_GTYPE_P(2);
 
         if (!AGT_ROOT_IS_OBJECT(properties))
-            ereport(
-                ERROR,
-                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                 errmsg(
-                     "_gtype_build_vertex() properties argument must be an object")));
+            ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("_gtype_build_vertex() properties argument must be an object")));
 
         add_gtype((Datum)properties, false, &result, GTYPEOID, false);
     }
@@ -1788,15 +1827,11 @@ Datum _gtype_build_vertex(PG_FUNCTION_ARGS)
 
 Datum make_vertex(Datum id, Datum label, Datum properties)
 {
-    return DirectFunctionCall3(_gtype_build_vertex,
-                     id,
-                     label,
-                     properties);
+    return DirectFunctionCall3(_gtype_build_vertex, id, label, properties);
 
 }
 
 PG_FUNCTION_INFO_V1(_gtype_build_edge);
-
 /*
  * SQL function gtype_build_edge(graphid, graphid, graphid, cstring, gtype)
  */
@@ -1868,21 +1903,17 @@ Datum _gtype_build_edge(PG_FUNCTION_ARGS)
     /* if the properties object is null, push an empty object */
     if (fcinfo->args[4].isnull)
     {
-        result.res = push_gtype_value(&result.parse_state, WAGT_BEGIN_OBJECT,
-                                       NULL);
-        result.res = push_gtype_value(&result.parse_state, WAGT_END_OBJECT,
-                                       NULL);
+        result.res = push_gtype_value(&result.parse_state, WAGT_BEGIN_OBJECT, NULL);
+        result.res = push_gtype_value(&result.parse_state, WAGT_END_OBJECT, NULL);
     }
     else
     {
         gtype *properties = AG_GET_ARG_GTYPE_P(4);
 
         if (!AGT_ROOT_IS_OBJECT(properties))
-            ereport(
-                ERROR,
+            ereport(ERROR,
                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                 errmsg(
-                     "_gtype_build_edge() properties argument must be an object")));
+                 errmsg("_gtype_build_edge() properties argument must be an object")));
 
         add_gtype((Datum)properties, false, &result, GTYPEOID, false);
     }
@@ -1894,11 +1925,8 @@ Datum _gtype_build_edge(PG_FUNCTION_ARGS)
     PG_RETURN_POINTER(gtype_value_to_gtype(result.res));
 }
 
-Datum make_edge(Datum id, Datum startid, Datum endid, Datum label,
-                Datum properties)
-{
-    return DirectFunctionCall5(_gtype_build_edge, id, startid, endid, label,
-                               properties);
+Datum make_edge(Datum id, Datum startid, Datum endid, Datum label, Datum properties) {
+    return DirectFunctionCall5(_gtype_build_edge, id, startid, endid, label, properties);
 }
 
 PG_FUNCTION_INFO_V1(gtype_build_map);
@@ -1951,23 +1979,6 @@ Datum gtype_build_map(PG_FUNCTION_ARGS)
         add_gtype(args[i + 1], nulls[i + 1], &result, types[i + 1], false);
     }
 
-    result.res = push_gtype_value(&result.parse_state, WAGT_END_OBJECT, NULL);
-
-    PG_RETURN_POINTER(gtype_value_to_gtype(result.res));
-}
-
-PG_FUNCTION_INFO_V1(gtype_build_map_noargs);
-
-/*
- * degenerate case of gtype_build_map where it gets 0 arguments.
- */
-Datum gtype_build_map_noargs(PG_FUNCTION_ARGS)
-{
-    gtype_in_state result;
-
-    memset(&result, 0, sizeof(gtype_in_state));
-
-    push_gtype_value(&result.parse_state, WAGT_BEGIN_OBJECT, NULL);
     result.res = push_gtype_value(&result.parse_state, WAGT_END_OBJECT, NULL);
 
     PG_RETURN_POINTER(gtype_value_to_gtype(result.res));
