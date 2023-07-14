@@ -31,6 +31,9 @@
 #include "utils/graphid.h"
 #include "utils/queue.h"
 #include "nodes/cypher_nodes.h"
+#include "utils/vertex.h"
+#include "utils/edge.h"
+#include "utils/variable_edge.h"
 
 // defines 
 #define GET_GRAPHID_ARRAY_FROM_CONTAINER(vpc) \
@@ -263,28 +266,33 @@ static path_finding_context *build_vle_context(FunctionCallInfo fcinfo, FuncCall
     Assert(path_ctx->next_vertex);
     
     // start id
-    agtv_temp = get_gtype_value("age_vle", AG_GET_ARG_GTYPE_P(1), AGTV_VERTEX, false);
-
+  //  agtv_temp = get_gtype_value("age_vle", AG_GET_ARG_GTYPE_P(1), AGTV_VERTEX, false);
+    vertex *v = AG_GET_ARG_VERTEX(1);
+    path_ctx->vsid = *((int64 *)(&v->children[0]));
+/*
     if (agtv_temp->type == AGTV_VERTEX)
         agtv_temp = GET_GTYPE_VALUE_OBJECT_VALUE(agtv_temp, "id");
     else if (agtv_temp == NULL || agtv_temp->type != AGTV_INTEGER)
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("invalid start id")));
-
-    path_ctx->vsid = agtv_temp->val.int_value;
+*/
+ //   path_ctx->vsid = agtv_temp->val.int_value;
 
     // end id - determines which path function is used.
-    if (PG_ARGISNULL(2) || is_gtype_null(AG_GET_ARG_GTYPE_P(2))) {
+    if (PG_ARGISNULL(2)) {
             path_ctx->path_function = VLE_FUNCTION_PATHS_FROM;
         path_ctx->veid = 0;
     } else {
+	vertex *v = AG_GET_ARG_VERTEX(2);
+	path_ctx->veid = *((int64 *)(&v->children[0]));
+/*
         agtv_temp = get_gtype_value("age_vle", AG_GET_ARG_GTYPE_P(2), AGTV_VERTEX, false);
-        if (agtv_temp->type == AGTV_VERTEX)
+	if (agtv_temp->type == AGTV_VERTEX)
             agtv_temp = GET_GTYPE_VALUE_OBJECT_VALUE(agtv_temp, "id");
         else if (agtv_temp->type != AGTV_INTEGER)
             ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("invalid end id")));
-        
+  */      
         path_ctx->path_function = VLE_FUNCTION_PATHS_BETWEEN;
-        path_ctx->veid = agtv_temp->val.int_value;
+  //      path_ctx->veid = agtv_temp->val.int_value;
     }
 
     // get the VLE edge prototype 

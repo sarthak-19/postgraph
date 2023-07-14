@@ -2265,29 +2265,17 @@ Datum gtype_field_access(PG_FUNCTION_ARGS)
     gtype_value *key_value;
 
     if (!AGT_ROOT_IS_SCALAR(key))
-    {
         PG_RETURN_NULL();
-    }
 
     key_value = get_ith_gtype_value_from_container(&key->root, 0);
 
     if (key_value->type == AGTV_INTEGER)
-    {
-        AG_RETURN_GTYPE_P(gtype_array_element_impl(fcinfo, agt,
-                                                   key_value->val.int_value,
-                                                   false));
-    }
+        AG_RETURN_GTYPE_P(gtype_array_element_impl(fcinfo, agt, key_value->val.int_value, false));
     else if (key_value->type == AGTV_STRING)
-    {
-        AG_RETURN_GTYPE_P(gtype_object_field_impl(fcinfo, agt,
-                                                    key_value->val.string.val,
-                                                    key_value->val.string.len,
-                                                    false));
-    }
+        AG_RETURN_GTYPE_P(gtype_object_field_impl(fcinfo, agt, key_value->val.string.val,
+                                                    key_value->val.string.len, false));
     else
-    {
         PG_RETURN_NULL();
-    }
 }
 
 static Datum process_access_operator_result(FunctionCallInfo fcinfo, gtype_value *agtv, bool as_text)
@@ -2318,9 +2306,7 @@ static Datum process_access_operator_result(FunctionCallInfo fcinfo, gtype_value
         PG_RETURN_NULL();
 }
 
-Datum gtype_array_element_impl(FunctionCallInfo fcinfo, gtype *gtype_in,
-                                int element, bool as_text)
-{       
+Datum gtype_array_element_impl(FunctionCallInfo fcinfo, gtype *gtype_in, int element, bool as_text) {       
     gtype_value *v;
 
     if (!AGT_ROOT_IS_ARRAY(gtype_in))
@@ -2331,15 +2317,10 @@ Datum gtype_array_element_impl(FunctionCallInfo fcinfo, gtype *gtype_in,
     return process_access_operator_result(fcinfo, v, as_text);
 }       
    
-Datum gtype_object_field_impl(FunctionCallInfo fcinfo, gtype *gtype_in,
-                               char *key, int key_len, bool as_text)
-{  
+Datum gtype_object_field_impl(FunctionCallInfo fcinfo, gtype *gtype_in, char *key, int key_len, bool as_text) {  
     gtype_value *v;
     gtype_container *agtc = &gtype_in->root;
-    const gtype_value new_key_value = {
-        .type = AGTV_STRING,
-        .val.string = { key_len, key}
-    };
+    const gtype_value new_key_value = { .type = AGTV_STRING, .val.string = { key_len, key} };
 
     if (AGT_IS_VERTEX(gtype_in) || AGT_IS_EDGE(gtype_in))
     {
@@ -2414,16 +2395,11 @@ Datum gtype_access_slice(PG_FUNCTION_ARGS)
 
     /* return null if the array to slice is null */
     if (PG_ARGISNULL(0))
-    {
         PG_RETURN_NULL();
-    }
 
     /* return an error if both indices are NULL */
     if (PG_ARGISNULL(1) && PG_ARGISNULL(2))
-    {
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                        errmsg("slice start and/or end is required")));
-    }
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("slice start and/or end is required")));
 
     /* get the array parameter and verify that it is a list */
     array = AG_GET_ARG_GTYPE_P(0);
@@ -2936,48 +2912,35 @@ static Datum get_vertex(const char *graph, const char *vertex_label, int64 graph
     TupleDesc tupdesc;
     Datum id, properties, result;
 
-    /* get the specific graph namespace (schema) */
     Oid graph_namespace_oid = get_namespace_oid(graph, false);
-    /* get the specific vertex label table (schema.vertex_label) */
-    Oid vertex_label_table_oid = get_relname_relid(vertex_label,
-                                                 graph_namespace_oid);
-    /* get the active snapshot */
+    Oid vertex_label_table_oid = get_relname_relid(vertex_label, graph_namespace_oid);
     Snapshot snapshot = GetActiveSnapshot();
 
-    /* initialize the scan key */
-    ScanKeyInit(&scan_keys[0], 1, BTEqualStrategyNumber, F_OIDEQ,
-                Int64GetDatum(graphid));
+    ScanKeyInit(&scan_keys[0], 1, BTEqualStrategyNumber, F_OIDEQ, Int64GetDatum(graphid));
 
-    /* open the relation (table), begin the scan, and get the tuple  */
     graph_vertex_label = table_open(vertex_label_table_oid, ShareLock);
     scan_desc = table_beginscan(graph_vertex_label, snapshot, 1, scan_keys);
     tuple = heap_getnext(scan_desc, ForwardScanDirection);
 
-    /* bail if the tuple isn't valid */
     if (!HeapTupleIsValid(tuple))
-    {
         ereport(ERROR,
                 (errcode(ERRCODE_UNDEFINED_TABLE),
                  errmsg("graphid cde %lu does not exist", graphid)));
-    }
 
-    /* get the tupdesc - we don't need to release this one */
     tupdesc = RelationGetDescr(graph_vertex_label);
-    /* bail if the number of columns differs */
     if (tupdesc->natts != 2)
         ereport(ERROR,
                 (errcode(ERRCODE_UNDEFINED_TABLE),
                  errmsg("Invalid number of attributes for %s.%s", graph,
                         vertex_label )));
 
-    /* get the id */
     id = column_get_datum(tupdesc, tuple, 0, "id", GRAPHIDOID, true);
-    /* get the properties */
     properties = column_get_datum(tupdesc, tuple, 1, "properties",
                                   GTYPEOID, true);
     /* reconstruct the vertex */
     result = DirectFunctionCall3(_gtype_build_vertex, id,
                                  CStringGetDatum(vertex_label), properties);
+
     /* end the scan and close the relation */
     table_endscan(scan_desc);
     table_close(graph_vertex_label, ShareLock);
@@ -2985,10 +2948,50 @@ static Datum get_vertex(const char *graph, const char *vertex_label, int64 graph
     return result;
 }
 
-PG_FUNCTION_INFO_V1(age_startnode);
-
-Datum age_startnode(PG_FUNCTION_ARGS)
+static Datum get_vertex_1(const char *graph, const char *vertex_label, int64 graphid)
 {
+    ScanKeyData scan_keys[1];
+    Relation graph_vertex_label;
+    TableScanDesc scan_desc;
+    HeapTuple tuple;
+    TupleDesc tupdesc;
+    Datum id, properties, result;
+
+    Oid graph_namespace_oid = get_namespace_oid(graph, false);
+    Oid vertex_label_table_oid = get_relname_relid(vertex_label, graph_namespace_oid);
+    Snapshot snapshot = GetActiveSnapshot();
+
+    ScanKeyInit(&scan_keys[0], 1, BTEqualStrategyNumber, F_OIDEQ, Int64GetDatum(graphid));
+
+    graph_vertex_label = table_open(vertex_label_table_oid, ShareLock);
+    scan_desc = table_beginscan(graph_vertex_label, snapshot, 1, scan_keys);
+    tuple = heap_getnext(scan_desc, ForwardScanDirection);
+
+    if (!HeapTupleIsValid(tuple))
+        ereport(ERROR,
+                (errcode(ERRCODE_UNDEFINED_TABLE),
+                 errmsg("graphid cde %lu does not exist", graphid)));
+
+    tupdesc = RelationGetDescr(graph_vertex_label);
+    if (tupdesc->natts != 2)
+        ereport(ERROR,
+                (errcode(ERRCODE_UNDEFINED_TABLE),
+                 errmsg("Invalid number of attributes for %s.%s", graph,
+                        vertex_label )));
+
+    id = column_get_datum(tupdesc, tuple, 0, "id", GRAPHIDOID, true);
+    properties = column_get_datum(tupdesc, tuple, 1, "properties", GTYPEOID, true);
+    /* reconstruct the vertex */
+    result = VERTEX_GET_DATUM(create_vertex(DATUM_GET_GRAPHID(id), vertex_label, DATUM_GET_GTYPE_P(properties)));
+    /* end the scan and close the relation */
+    table_endscan(scan_desc);
+    table_close(graph_vertex_label, ShareLock);
+    /* return the vertex datum */
+    return result;
+}
+
+PG_FUNCTION_INFO_V1(age_edge_startnode);
+Datum age_edge_startnode(PG_FUNCTION_ARGS) {
     gtype *agt_arg = NULL;
     gtype_value *agtv_object = NULL;
     gtype_value *agtv_value = NULL;
@@ -2997,59 +3000,94 @@ Datum age_startnode(PG_FUNCTION_ARGS)
     graphid graph_oid;
     Datum result;
 
-    /* we need the graph name */
-    Assert(PG_ARGISNULL(0) == false);
-
-    /* check for null */
-    if (PG_ARGISNULL(1))
-        PG_RETURN_NULL();
-
-    /* get the graph name */
     agt_arg = AG_GET_ARG_GTYPE_P(0);
-    /* it must be a scalar and must be a string */
     Assert(AGT_ROOT_IS_SCALAR(agt_arg));
     agtv_object = get_ith_gtype_value_from_container(&agt_arg->root, 0);
     Assert(agtv_object->type == AGTV_STRING);
-    graph_name = strndup(agtv_object->val.string.val,
-                         agtv_object->val.string.len);
+    graph_name = strndup(agtv_object->val.string.val, agtv_object->val.string.len);
 
-    /* get the edge */
-    agt_arg = AG_GET_ARG_GTYPE_P(1);
-    /* check for a scalar object */
-    if (!AGT_ROOT_IS_SCALAR(agt_arg))
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                        errmsg("startNode() argument must resolve to a scalar value")));
-    /* get the object */
-    agtv_object = get_ith_gtype_value_from_container(&agt_arg->root, 0);
+    edge *e = AG_GET_ARG_EDGE(1);
+    graph_oid = *((int64 *)(&e->children[2])); 
 
-    /* is it an gtype null, return null if it is */
-    if (agtv_object->type == AGTV_NULL)
-            PG_RETURN_NULL();
-
-    /* check for proper gtype */
-    if (agtv_object->type != AGTV_EDGE)
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                        errmsg("startNode() argument must be an edge or null")));
-
-    /* get the graphid for start_id */
-    agtv_value = GET_GTYPE_VALUE_OBJECT_VALUE(agtv_object, "start_id");
-    /* it must not be null and must be an integer */
-    Assert(agtv_value != NULL);
-    Assert(agtv_value->type = AGTV_INTEGER);
-    graph_oid = agtv_value->val.int_value;
-
-    /* get the label */
     label_name = get_label_name(graph_name, graph_oid);
-    /* it must not be null and must be a string */
     Assert(label_name != NULL);
-
-    result = get_vertex(graph_name, label_name, graph_oid);
-
-    free(label_name);
+    result = get_vertex_1(graph_name, label_name, graph_oid);
 
     return result;
 }
 
+PG_FUNCTION_INFO_V1(age_edge_endnode);
+Datum age_edge_endnode(PG_FUNCTION_ARGS) {
+    gtype *agt_arg = NULL;
+    gtype_value *agtv_object = NULL;
+    gtype_value *agtv_value = NULL;
+    char *graph_name = NULL;
+    char *label_name = NULL;
+    graphid graph_oid;
+    Datum result;
+
+    agt_arg = AG_GET_ARG_GTYPE_P(0);
+    Assert(AGT_ROOT_IS_SCALAR(agt_arg));
+    agtv_object = get_ith_gtype_value_from_container(&agt_arg->root, 0);
+    Assert(agtv_object->type == AGTV_STRING);
+    graph_name = strndup(agtv_object->val.string.val, agtv_object->val.string.len);
+
+    edge *e = AG_GET_ARG_EDGE(1);
+    graph_oid = *((int64 *)(&e->children[4]));
+
+    label_name = get_label_name(graph_name, graph_oid);
+    Assert(label_name != NULL);
+    result = get_vertex_1(graph_name, label_name, graph_oid);
+
+    return result;
+}
+
+
+/*
+PG_FUNCTION_INFO_V1(age_startnode);
+Datum age_startnode(PG_FUNCTION_ARGS) {
+    gtype *agt_arg = NULL;
+    gtype_value *agtv_object = NULL;
+    gtype_value *agtv_value = NULL;
+    char *graph_name = NULL;
+    char *label_name = NULL;
+    graphid graph_oid;
+    Datum result;
+Assert(PG_ARGISNULL(0) == false);
+if (PG_ARGISNULL(1))
+        PG_RETURN_NULL();
+
+    agt_arg = AG_GET_ARG_GTYPE_P(0);
+    Assert(AGT_ROOT_IS_SCALAR(agt_arg));
+    agtv_object = get_ith_gtype_value_from_container(&agt_arg->root, 0);
+    Assert(agtv_object->type == AGTV_STRING);
+    graph_name = strndup(agtv_object->val.string.val, agtv_object->val.string.len);
+agt_arg = AG_GET_ARG_GTYPE_P(1);
+    if (!AGT_ROOT_IS_SCALAR(agt_arg))
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                        errmsg("startNode() argument must resolve to a scalar value")));
+    agtv_object = get_ith_gtype_value_from_container(&agt_arg->root, 0);
+
+    if (agtv_object->type == AGTV_NULL)
+            PG_RETURN_NULL();
+
+    if (agtv_object->type != AGTV_EDGE)
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                        errmsg("startNode() argument must be an edge or null")));
+
+    agtv_value = GET_GTYPE_VALUE_OBJECT_VALUE(agtv_object, "start_id");
+    Assert(agtv_value != NULL);
+    Assert(agtv_value->type = AGTV_INTEGER);
+    graph_oid = agtv_value->val.int_value;
+
+    label_name = get_label_name(graph_name, graph_oid);
+    Assert(label_name != NULL);
+    result = get_vertex(graph_name, label_name, graph_oid);
+
+    return result;
+}
+*/
+/*
 PG_FUNCTION_INFO_V1(age_endnode);
 
 Datum age_endnode(PG_FUNCTION_ARGS)
@@ -3062,50 +3100,36 @@ Datum age_endnode(PG_FUNCTION_ARGS)
     graphid graph_oid;
     Datum result;
 
-    /* we need the graph name */
     Assert(PG_ARGISNULL(0) == false);
 
-    /* check for null */
     if (PG_ARGISNULL(1))
         PG_RETURN_NULL();
-
-    /* get the graph name */
     agt_arg = AG_GET_ARG_GTYPE_P(0);
-    /* it must be a scalar and must be a string */
     Assert(AGT_ROOT_IS_SCALAR(agt_arg));
     agtv_object = get_ith_gtype_value_from_container(&agt_arg->root, 0);
     Assert(agtv_object->type == AGTV_STRING);
     graph_name = strndup(agtv_object->val.string.val,
                          agtv_object->val.string.len);
 
-    /* get the edge */
     agt_arg = AG_GET_ARG_GTYPE_P(1);
-    /* check for a scalar object */
     if (!AGT_ROOT_IS_SCALAR(agt_arg))
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                         errmsg("endNode() argument must resolve to a scalar value")));
-    /* get the object */
     agtv_object = get_ith_gtype_value_from_container(&agt_arg->root, 0);
 
-    /* is it an gtype null, return null if it is */
     if (agtv_object->type == AGTV_NULL)
             PG_RETURN_NULL();
 
-    /* check for proper gtype */
     if (agtv_object->type != AGTV_EDGE)
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                         errmsg("endNode() argument must be an edge")));
 
-    /* get the graphid for the end_id */
     agtv_value = GET_GTYPE_VALUE_OBJECT_VALUE(agtv_object, "end_id");
-    /* it must not be null and must be an integer */
     Assert(agtv_value != NULL);
     Assert(agtv_value->type = AGTV_INTEGER);
     graph_oid = agtv_value->val.int_value;
 
-    /* get the label */
     label_name = get_label_name(graph_name, graph_oid);
-    /* it must not be null and must be a string */
     Assert(label_name != NULL);
 
     result = get_vertex(graph_name, label_name, graph_oid);
@@ -3114,7 +3138,7 @@ Datum age_endnode(PG_FUNCTION_ARGS)
 
     return result;
 }
-
+*/
 PG_FUNCTION_INFO_V1(age_head);
 
 Datum age_head(PG_FUNCTION_ARGS)
@@ -4845,7 +4869,7 @@ gtype_value *gtype_composite_to_gtype_value_binary(gtype *a)
  * flag is set, simply remove the property with the given property
  * name instead.
  */
-gtype_value *alter_property_value(gtype_value *properties, char *var_name,
+gtype_value *alter_property_value(gtype *properties, char *var_name,
                                    gtype *new_v, bool remove_property)
 {
     gtype_iterator *it;
@@ -4858,20 +4882,16 @@ gtype_value *alter_property_value(gtype_value *properties, char *var_name,
 
     // if no properties, return NULL
     if (properties == NULL)
-    {
         return NULL;
-    }
 
     // if properties is not an object, throw an error
-    if (properties->type != AGTV_OBJECT)
-    {
+    if (!GTYPE_CONTAINER_IS_OBJECT(&properties->root))//->type != AGTV_OBJECT)
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                         errmsg("can only update objects")));
-    }
 
     r = palloc0(sizeof(gtype_value));
 
-    prop_gtype = gtype_value_to_gtype(properties);
+    prop_gtype = properties;
     it = gtype_iterator_init(&prop_gtype->root);
     tok = gtype_iterator_next(&it, r, true);
 
@@ -4882,9 +4902,7 @@ gtype_value *alter_property_value(gtype_value *properties, char *var_name,
      * flag set to true.
      */
     if (new_v == NULL)
-    {
         remove_property = true;
-    }
 
     found = false;
     while (true)
@@ -4894,9 +4912,7 @@ gtype_value *alter_property_value(gtype_value *properties, char *var_name,
         tok = gtype_iterator_next(&it, r, true);
 
         if (tok == WAGT_DONE || tok == WAGT_END_OBJECT)
-        {
             break;
-        }
 
         str = pnstrdup(r->val.string.val, r->val.string.len);
 
@@ -4909,8 +4925,7 @@ gtype_value *alter_property_value(gtype_value *properties, char *var_name,
         if (strcmp(str, var_name))
         {
             // push the key
-            parsed_gtype_value = push_gtype_value(
-                &parse_state, tok, tok < WAGT_BEGIN_ARRAY ? r : NULL);
+            parsed_gtype_value = push_gtype_value(&parse_state, tok, tok < WAGT_BEGIN_ARRAY ? r : NULL);
 
             // get the value and push the value
             tok = gtype_iterator_next(&it, r, true);
@@ -5899,10 +5914,60 @@ static gtype_iterator *get_next_object_key(gtype_iterator *it, gtype_container *
     return it;
 }
 
+PG_FUNCTION_INFO_V1(age_vertex_keys);
+Datum age_vertex_keys(PG_FUNCTION_ARGS)
+{
+    gtype *agt_arg = NULL;
+    gtype_value *agtv_result = NULL;
+    gtype_value obj_key = {0};
+    gtype_iterator *it = NULL;
+    gtype_parse_state *parse_state = NULL;
+    vertex *v = AG_GET_ARG_VERTEX(0);
+    	agt_arg = extract_vertex_properties(v);
+
+    agtv_result = push_gtype_value(&parse_state, WAGT_BEGIN_ARRAY, NULL);
+
+    while ((it = get_next_object_key(it, &agt_arg->root, &obj_key)))
+        agtv_result = push_gtype_value(&parse_state, WAGT_ELEM, &obj_key);
+
+    /* push the end of the array*/
+    agtv_result = push_gtype_value(&parse_state, WAGT_END_ARRAY, NULL);
+
+    Assert(agtv_result != NULL);
+    Assert(agtv_result->type == AGTV_ARRAY);
+
+    PG_RETURN_POINTER(gtype_value_to_gtype(agtv_result));
+}
+
+
+PG_FUNCTION_INFO_V1(age_edge_keys);
+Datum age_edge_keys(PG_FUNCTION_ARGS)
+{   
+    gtype *agt_arg = NULL;
+    gtype_value *agtv_result = NULL;
+    gtype_value obj_key = {0};
+    gtype_iterator *it = NULL;
+    gtype_parse_state *parse_state = NULL;
+    edge *v = AG_GET_ARG_EDGE(0);
+        agt_arg = extract_edge_properties(v);
+
+    agtv_result = push_gtype_value(&parse_state, WAGT_BEGIN_ARRAY, NULL);
+
+    while ((it = get_next_object_key(it, &agt_arg->root, &obj_key)))
+        agtv_result = push_gtype_value(&parse_state, WAGT_ELEM, &obj_key);
+
+    /* push the end of the array*/
+    agtv_result = push_gtype_value(&parse_state, WAGT_END_ARRAY, NULL);
+
+    Assert(agtv_result != NULL);
+    Assert(agtv_result->type == AGTV_ARRAY);
+
+    PG_RETURN_POINTER(gtype_value_to_gtype(agtv_result));
+}
+
+
+
 PG_FUNCTION_INFO_V1(age_keys);
-/*
- * Execution function to implement openCypher keys() function
- */
 Datum age_keys(PG_FUNCTION_ARGS)
 {
     gtype *agt_arg = NULL;
@@ -5910,20 +5975,11 @@ Datum age_keys(PG_FUNCTION_ARGS)
     gtype_value obj_key = {0};
     gtype_iterator *it = NULL;
     gtype_parse_state *parse_state = NULL;
-
-    /* check for null */
-    if (PG_ARGISNULL(0))
-        PG_RETURN_NULL();
-
-    //needs to be a map, node, or relationship
     agt_arg = AG_GET_ARG_GTYPE_P(0);
 
     if (is_gtype_null(agt_arg))
         PG_RETURN_NULL();
 
-    /*
-     * check for a scalar object. edges and vertexes are scalar, objects are not * scalar and will be handled separately
-     */
     if (AGT_ROOT_IS_SCALAR(agt_arg)) {
         agtv_result = get_ith_gtype_value_from_container(&agt_arg->root, 0);
 
@@ -5944,10 +6000,8 @@ Datum age_keys(PG_FUNCTION_ARGS)
                 errmsg("keys() argument must be a vertex, edge, object or null")));
     }
 
-    /* push the beginning of the array */
     agtv_result = push_gtype_value(&parse_state, WAGT_BEGIN_ARRAY, NULL);
 
-    /* populate the array with keys */
     while ((it = get_next_object_key(it, &agt_arg->root, &obj_key)))
         agtv_result = push_gtype_value(&parse_state, WAGT_ELEM, &obj_key);
 

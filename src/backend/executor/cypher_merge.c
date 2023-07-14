@@ -35,6 +35,8 @@
 #include "nodes/cypher_nodes.h"
 #include "utils/gtype.h"
 #include "utils/graphid.h"
+#include "utils/vertex.h"
+#include "utils/edge.h"
 
 static void begin_cypher_merge(CustomScanState *node, EState *estate,
                                int eflags);
@@ -235,10 +237,10 @@ static void process_path(cypher_merge_custom_scan_state *css)
         TupleTableSlot *scantuple = econtext->ecxt_scantuple;
         Datum result;
 
-        result = make_path(css->path_values);
+        //result = make_path(css->path_values);
 
-        scantuple->tts_values[path->path_attr_num - 1] = result;
-        scantuple->tts_isnull[path->path_attr_num - 1] = false;
+        scantuple->tts_values[path->path_attr_num - 1] = NULL;//result;
+        scantuple->tts_isnull[path->path_attr_num - 1] = true;//false;
     }
 }
 
@@ -716,22 +718,17 @@ static Datum merge_vertex(cypher_merge_custom_scan_state *css,
             Datum result;
 
             /* make the vertex gtype */
-            result = make_vertex(
-                id, CStringGetDatum(node->label_name), prop);
+            result = VERTEX_GET_DATUM(create_vertex(id, node->label_name, DATUM_GET_GTYPE_P(prop)));
 
             /* append to the path list */
             if (CYPHER_TARGET_NODE_IN_PATH(node->flags))
-            {
-                css->path_values = lappend(css->path_values,
-                                           DatumGetPointer(result));
-            }
+                css->path_values = lappend(css->path_values, DatumGetPointer(result));
 
             /*
              * Put the vertex in the correct spot in the scantuple, so parent
              * execution nodes can reference the newly created variable.
              */
-            if (CYPHER_TARGET_NODE_IS_VARIABLE(node->flags))
-            {
+            if (CYPHER_TARGET_NODE_IS_VARIABLE(node->flags)) {
                 scanTupleSlot->tts_values[node->tuple_position - 1] = result;
                 scanTupleSlot->tts_isnull[node->tuple_position - 1] = false;
             }
@@ -739,7 +736,7 @@ static Datum merge_vertex(cypher_merge_custom_scan_state *css,
     }
     else
     {
-        gtype *a;
+    /*    gtype *a;
         Datum d;
         gtype_value *v;
         gtype_value *id_value;
@@ -750,18 +747,12 @@ static Datum merge_vertex(cypher_merge_custom_scan_state *css,
         scantuple = ps->ps_ExprContext->ecxt_scantuple;
 
         if (scantuple->tts_isnull[node->tuple_position - 1])
-        {
-            ereport(ERROR,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                 errmsg("Existing variable %s cannot be NULL in MERGE clause",
-                 node->variable_name)));
-        }
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("Existing variable %s cannot be NULL in MERGE clause", node->variable_name)));
 
-        /* get the vertex gtype in the scanTupleSlot */
         d = scantuple->tts_values[node->tuple_position - 1];
         a = DATUM_GET_GTYPE_P(d);
 
-        /* Convert to an gtype value */
         v = get_ith_gtype_value_from_container(&a->root, 0);
 
         if (v->type != AGTV_VERTEX)
@@ -769,11 +760,21 @@ static Datum merge_vertex(cypher_merge_custom_scan_state *css,
                     (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                      errmsg("gtype must resolve to a vertex")));
 
-        /* extract the id gtype field */
         id_value = GET_GTYPE_VALUE_OBJECT_VALUE(v, "id");
 
-        /* extract the graphid and cast to a Datum */
         id = GRAPHID_GET_DATUM(id_value->val.int_value);
+        */
+	TupleTableSlot *scantuple;
+        PlanState *ps;
+
+        ps = css->css.ss.ps.lefttree;
+        scantuple = ps->ps_ExprContext->ecxt_scantuple;
+        if (scantuple->tts_isnull[node->tuple_position - 1])
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("Existing variable %s cannot be NULL in MERGE clause", node->variable_name)));
+
+        vertex *v = DATUM_GET_VERTEX(scantuple->tts_values[node->tuple_position - 1]);
+        id = GRAPHID_GET_DATUM(*((int64 *)(&v->children[0])));
 
         /*
          * Its possible the variable has already been deleted. There are two
@@ -803,8 +804,7 @@ static Datum merge_vertex(cypher_merge_custom_scan_state *css,
         if (CYPHER_TARGET_NODE_IN_PATH(node->flags))
         {
             Datum vertex = scanTupleSlot->tts_values[node->tuple_position - 1];
-            css->path_values = lappend(css->path_values,
-                                       DatumGetPointer(vertex));
+            css->path_values = lappend(css->path_values, DatumGetPointer(vertex));
         }
     }
 
@@ -915,19 +915,17 @@ static void merge_edge(cypher_merge_custom_scan_state *css,
     {
         Datum result;
 
-        result = make_edge(
-            id, start_id, end_id, CStringGetDatum(node->label_name), prop);
+        //result = make_edge( id, start_id, end_id, CStringGetDatum(node->label_name), prop);
+        result = EDGE_GET_DATUM(create_edge(id, start_id, end_id, node->label_name, GTYPE_P_GET_DATUM(prop)));
 
         // add the Datum to the list of entities for creating the path variable
-        if (CYPHER_TARGET_NODE_IN_PATH(node->flags))
-        {
+        if (CYPHER_TARGET_NODE_IN_PATH(node->flags)) {
             prev_path = lappend(prev_path, DatumGetPointer(result));
             css->path_values = list_concat(prev_path, css->path_values);
         }
 
         // Add the entity to the TupleTableSlot if necessary
-        if (CYPHER_TARGET_NODE_IS_VARIABLE(node->flags))
-        {
+        if (CYPHER_TARGET_NODE_IS_VARIABLE(node->flags)) {
             TupleTableSlot *scantuple = econtext->ecxt_scantuple;
 
             scantuple->tts_values[node->tuple_position - 1] = result;

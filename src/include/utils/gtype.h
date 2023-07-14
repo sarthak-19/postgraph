@@ -490,7 +490,7 @@ void uniqueify_gtype_object(gtype_value *object);
 char *gtype_value_type_to_string(enum gtype_value_type type);
 bool is_decimal_needed(char *numstr);
 int compare_gtype_scalar_values(gtype_value *a, gtype_value *b);
-gtype_value *alter_property_value(gtype_value *properties, char *var_name, gtype *new_v, bool remove_property);
+gtype_value *alter_property_value(gtype *properties, char *var_name, gtype *new_v, bool remove_property);
 gtype *get_one_gtype_from_variadic_args(FunctionCallInfo fcinfo, int variadic_offset, int expected_nargs);
 Datum make_vertex(Datum id, Datum label, Datum properties);
 Datum make_edge(Datum id, Datum startid, Datum endid, Datum label, Datum properties);

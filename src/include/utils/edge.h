@@ -67,6 +67,8 @@ void append_edge_to_string(StringInfoData *buffer, edge *v);
 char *extract_edge_label(edge *v);
 gtype *extract_edge_properties(edge *v);
 Datum build_edge(PG_FUNCTION_ARGS);
+edge *create_edge(graphid id,graphid start_id,graphid end_id, char *label, gtype *properties);
+int extract_edge_label_length(edge *v);
 
 #define EDGEOID \
     (GetSysCacheOid2(TYPENAMENSP, Anum_pg_type_oid, CStringGetDatum("edge"), ObjectIdGetDatum(postgraph_namespace_id())))

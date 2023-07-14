@@ -2078,7 +2078,8 @@ static cypher_relationship *build_VLE_relation(List *left_arg, cypher_relationsh
     /* add in the start vertex as a ColumnRef if necessary */
     if (cnl->name != NULL) {
         cref = makeNode(ColumnRef);
-        cref->fields = list_make2(makeString(cnl->name), makeString("id"));
+        //cref->fields = list_make2(makeString(cnl->name), makeString("id"));
+        cref->fields = list_make1(makeString(cnl->name));
         cref->location = left_arg_location;
         args = lappend(args, cref);
     } else {
@@ -2091,7 +2092,8 @@ static cypher_relationship *build_VLE_relation(List *left_arg, cypher_relationsh
     if (cnl->name == NULL)
     {
         cref = makeNode(ColumnRef);
-        cref->fields = list_make2(makeString(cnr->name), makeString("id"));
+        //cref->fields = list_make2(makeString(cnr->name), makeString("id"));
+        cref->fields = list_make1(makeString(cnr->name));        
         cref->location = left_arg_location;
         args = lappend(args, cref);
     } else {

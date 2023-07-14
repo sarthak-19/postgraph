@@ -48,7 +48,8 @@ Datum vertex_out(PG_FUNCTION_ARGS) {
 
     // id
     appendStringInfoString(str, "{\"id\": ");
-    appendStringInfoString(str, DatumGetCString(DirectFunctionCall1(int8out, Int64GetDatum((int64)v->children[0]))));
+    graphid id = *((int64 *)(&v->children[0]));
+    appendStringInfoString(str, DatumGetCString(DirectFunctionCall1(int8out, Int64GetDatum(id))));
 
     // label
     appendStringInfoString(str, ", \"label\": \"");
@@ -69,7 +70,8 @@ void append_vertex_to_string(StringInfoData *buffer, vertex *v){
 
     // id
     appendStringInfoString(buffer, "{\"id\": ");
-    appendStringInfoString(buffer, DatumGetCString(DirectFunctionCall1(int8out, Int64GetDatum((int64)v->children[0]))));
+    graphid id = *((int64 *)(&v->children[0]));
+    appendStringInfoString(buffer, DatumGetCString(DirectFunctionCall1(int8out, Int64GetDatum(id))));
 
     // label
     appendStringInfoString(buffer, ", \"label\": \"");
@@ -118,7 +120,34 @@ build_vertex(PG_FUNCTION_ARGS) {
 
     AG_RETURN_VERTEX(v);
 }
-   
+  
+vertex *
+create_vertex(graphid id, char *label, gtype *properties) {
+    StringInfoData buffer;
+    initStringInfo(&buffer);
+
+    // header
+    reserve_from_buffer(&buffer, VARHDRSZ);
+
+    // id
+    append_to_buffer(&buffer, (char *)&id, sizeof(graphid));
+
+    // label
+    int len = strlen(label);
+    append_to_buffer(&buffer, (char *)&len, sizeof(agtentry));
+    append_to_buffer(&buffer, label, len);
+
+    // properties
+    append_to_buffer(&buffer, properties, VARSIZE(properties));
+
+    vertex *v = (vertex *)buffer.data;
+
+    SET_VARSIZE(v, buffer.len);
+
+    return v;
+}
+
+
 /*
  * Equality Operators (=, <>)
  */
@@ -157,6 +186,30 @@ vertex_property_access(PG_FUNCTION_ARGS) {
                                              
     AG_RETURN_GTYPE_P(gtype_object_field_impl(fcinfo, agt, VARDATA_ANY(key), VARSIZE_ANY_EXHDR(key), false));
 }
+
+// -> operator
+PG_FUNCTION_INFO_V1(vertex_property_access_gtype);
+Datum
+vertex_property_access_gtype(PG_FUNCTION_ARGS) {
+    vertex *v = AG_GET_ARG_VERTEX(0);
+    gtype *agt = extract_vertex_properties(v);
+    gtype *key = AG_GET_ARG_GTYPE_P(1);
+    gtype_value *key_value;
+
+    if (!AGT_ROOT_IS_SCALAR(key))
+        PG_RETURN_NULL();
+    
+    key_value = get_ith_gtype_value_from_container(&key->root, 0);
+    
+    if (key_value->type == AGTV_INTEGER)
+        AG_RETURN_GTYPE_P(gtype_array_element_impl(fcinfo, agt, key_value->val.int_value, false));
+    else if (key_value->type == AGTV_STRING)
+        AG_RETURN_GTYPE_P(gtype_object_field_impl(fcinfo, agt, key_value->val.string.val, 
+                                                    key_value->val.string.len, false));
+    else
+        PG_RETURN_NULL();
+}
+
 
 // ->> operator
 PG_FUNCTION_INFO_V1(vertex_property_access_text);
@@ -283,6 +336,17 @@ vertex_id(PG_FUNCTION_ARGS) {
     AG_RETURN_GRAPHID((graphid)v->children[0]);
 }
 
+PG_FUNCTION_INFO_V1(age_vertex_id);
+Datum
+age_vertex_id(PG_FUNCTION_ARGS) {
+    vertex *v = AG_GET_ARG_VERTEX(0);
+
+    gtype_value gtv = { .type = AGTV_INTEGER, .val = {.int_value = *((int64 *)(&v->children[0])) } };    
+
+    AG_RETURN_GTYPE_P(gtype_value_to_gtype(&gtv));
+}
+
+
 PG_FUNCTION_INFO_V1(vertex_label);
 Datum
 vertex_label(PG_FUNCTION_ARGS) {
@@ -302,6 +366,18 @@ vertex_properties(PG_FUNCTION_ARGS) {
     AG_RETURN_GTYPE_P(extract_vertex_properties(v));
 }
 
+PG_FUNCTION_INFO_V1(age_vertex_label);
+Datum
+age_vertex_label(PG_FUNCTION_ARGS) {
+    vertex *v = AG_GET_ARG_VERTEX(0);
+
+    gtype_value gtv = {
+            .type = AGTV_STRING,
+            .val.string = { extract_vertex_label_length(v), extract_vertex_label(v) }
+            };
+
+    AG_RETURN_GTYPE_P(gtype_value_to_gtype(&gtv));
+}
 
 
 static void
@@ -317,6 +393,14 @@ extract_vertex_label(vertex *v) {
     int *label_length = (int *)&bytes[VARHDRSZ + sizeof(graphid)];
 
     return pnstrdup(label_addr, *label_length);
+}
+
+int
+extract_vertex_label_length(vertex *v) {
+    char *bytes = (char *)v;
+    int *label_length = (int *)&bytes[VARHDRSZ + ( sizeof(graphid))];
+
+    return *label_length;
 }
 
 gtype *

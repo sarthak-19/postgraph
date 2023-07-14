@@ -72,7 +72,9 @@ void append_vertex_to_string(StringInfoData *buffer, vertex *v);
 char *extract_vertex_label(vertex *v);
 gtype *extract_vertex_properties(vertex *v);
 Datum build_vertex(PG_FUNCTION_ARGS);
-	
+vertex *create_vertex(graphid id, char *label, gtype *properties);	
+int extract_vertex_label_length(vertex *v);
+
 #define VERTEXOID \
     (GetSysCacheOid2(TYPENAMENSP, Anum_pg_type_oid, CStringGetDatum("vertex"), ObjectIdGetDatum(postgraph_namespace_id())))
 
