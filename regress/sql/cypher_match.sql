@@ -460,7 +460,7 @@ SELECT * FROM cypher('cypher_match', $$
     CREATE (u {name: "orphan"})
     CREATE (u1 {name: "F"})-[u2:e1]->(u3 {name: "T"})
     RETURN u1, u2, u3
-$$) as (u1 vertex, u2 vertex, u3 vertex);
+$$) as (u1 vertex, u2 edge, u3 vertex);
 
 -- Querying NOT EXISTS syntax
 SELECT * FROM cypher('cypher_match', $$

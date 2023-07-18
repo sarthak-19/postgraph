@@ -985,15 +985,15 @@ simple_path:
         }
     | simple_path path_relationship path_node
         {
-            cypher_relationship *cr = (cypher_relationship *)$2;
+       /*     cypher_relationship *cr = (cypher_relationship *)$2;
 
             if (cr->varlen) {
                 cr = build_VLE_relation($1, cr, $3, @1, @2);
 
                 $$ = lappend(lappend($1, cr), $3);
-            } else {
+            } else {*/
                 $$ = lappend(lappend($1, $2), $3);
-            }
+            //}
         }
     ;
 

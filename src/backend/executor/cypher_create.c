@@ -38,7 +38,7 @@
 #include "utils/graphid.h"
 #include "utils/vertex.h"
 #include "utils/edge.h"
-
+#include "utils/traversal.h"
 
 static void begin_cypher_create(CustomScanState *node, EState *estate, int eflags);
 static TupleTableSlot *exec_cypher_create(CustomScanState *node);
@@ -68,6 +68,37 @@ const CustomExecMethods cypher_create_exec_methods = {CREATE_SCAN_STATE_NAME,
                                                       NULL,
                                                       NULL,
                                                       NULL};
+
+static void
+append_to_buffer(StringInfo buffer, const char *data, int len) {
+    int offset = reserve_from_buffer(buffer, len);
+    memcpy(buffer->data + offset, data, len);
+}
+
+
+static Datum create_traversal(List *entities) {
+    ListCell *lc;
+    StringInfoData buffer;
+    initStringInfo(&buffer);
+
+    // header
+    reserve_from_buffer(&buffer, VARHDRSZ);
+
+    // length
+    reserve_from_buffer(&buffer, sizeof(pentry));
+
+    foreach(lc, entities) {
+	Datum d = lfirst(lc);
+        append_to_buffer(&buffer, d, VARSIZE_ANY(d));
+    }
+
+    traversal *p = (traversal *)buffer.data;
+
+    p->children[0] = list_length(entities);
+    SET_VARSIZE(p, buffer.len);
+
+    return TRAVERSAL_GET_DATUM(p);
+}
 
 static void begin_cypher_create(CustomScanState *node, EState *estate, int eflags) {
     cypher_create_custom_scan_state *css = (cypher_create_custom_scan_state *)node;
@@ -167,9 +198,9 @@ static void process_pattern(cypher_create_custom_scan_state *css)
             scantuple = ps->ps_ExprContext->ecxt_scantuple;
 
             //result = make_path(css->path_values);
-
-            scantuple->tts_values[path->path_attr_num - 1] = NULL;//result;
-            scantuple->tts_isnull[path->path_attr_num - 1] = true;//false;
+            result = create_traversal(css->path_values);
+            scantuple->tts_values[path->path_attr_num - 1] = result;
+            scantuple->tts_isnull[path->path_attr_num - 1] = false;
         }
 
         css->path_values = NIL;

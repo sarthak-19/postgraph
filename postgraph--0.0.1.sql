@@ -625,44 +625,12 @@ CREATE AGGREGATE age_collect(gtype) (stype = internal, sfunc = age_collect_aggtr
 --
 -- John's crap
 --
-CREATE FUNCTION age_vle(IN gtype, IN vertex, IN vertex, IN gtype, IN gtype, IN gtype, IN gtype, OUT edges gtype) RETURNS SETOF gtype LANGUAGE C STABLE CALLED ON NULL INPUT PARALLEL UNSAFE AS 'MODULE_PATHNAME';
+CREATE FUNCTION age_vle(IN gtype, IN vertex, IN vertex, IN gtype, IN gtype, IN gtype, IN gtype, OUT edges variable_edge) RETURNS SETOF variable_edge LANGUAGE C STABLE CALLED ON NULL INPUT PARALLEL UNSAFE AS 'MODULE_PATHNAME';
 -- TODO: remove
 CREATE FUNCTION age_build_vle_match_edge(gtype, gtype) RETURNS gtype LANGUAGE C IMMUTABLE PARALLEL SAFE AS 'MODULE_PATHNAME';
 
-CREATE FUNCTION age_match_vle_terminal_edge_start("any", gtype) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR !>= (FUNCTION = age_match_vle_terminal_edge_start, LEFTARG = "any", RIGHTARG = gtype);
-CREATE FUNCTION age_match_vle_terminal_edge_end("any", gtype) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR @>= (FUNCTION = age_match_vle_terminal_edge_end, LEFTARG = "any", RIGHTARG = gtype);
-CREATE FUNCTION age_match_vle_terminal_edge_left_check_end("any", gtype) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR !<= (FUNCTION = age_match_vle_terminal_edge_left_check_end, LEFTARG = "any", RIGHTARG = gtype);
-CREATE FUNCTION age_match_vle_terminal_right_check_start("any", gtype) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR @<= (FUNCTION = age_match_vle_terminal_right_check_start, LEFTARG = "any", RIGHTARG = gtype);
-
-
-CREATE FUNCTION gid_is_first_startid(graphid, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR !>= (FUNCTION = gid_is_first_startid, LEFTARG = graphid, RIGHTARG = variable_edge);
-
-CREATE FUNCTION vertex_is_first_start_vertex(vertex, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR !>= (FUNCTION = vertex_is_first_start_vertex, LEFTARG = vertex, RIGHTARG = variable_edge);
-
-CREATE FUNCTION gid_is_first_endid(graphid, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR @>= (FUNCTION = gid_is_first_endid, LEFTARG = graphid, RIGHTARG = variable_edge);
-CREATE FUNCTION vertex_is_first_end_vertex(vertex, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR @>= (FUNCTION = vertex_is_first_end_vertex, LEFTARG = vertex, RIGHTARG = variable_edge);
-
-
-CREATE FUNCTION gid_is_last_startid(graphid, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR !<= (FUNCTION = gid_is_last_startid, LEFTARG = graphid, RIGHTARG = variable_edge);
-
-CREATE FUNCTION vertex_is_last_start_vertex(vertex, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR !<= (FUNCTION = vertex_is_last_start_vertex, LEFTARG = vertex, RIGHTARG = variable_edge);
-
-
-CREATE FUNCTION gid_is_last_endid(graphid, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR @<= (FUNCTION = gid_is_last_endid, LEFTARG = graphid, RIGHTARG = variable_edge);
-CREATE FUNCTION vertex_is_last_end_vertex(vertex, variable_edge) RETURNS boolean LANGUAGE C STABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
-CREATE OPERATOR @<= (FUNCTION = vertex_is_last_end_vertex, LEFTARG = vertex, RIGHTARG = variable_edge);
-
+CREATE FUNCTION match_vles(variable_edge, variable_edge) RETURNS boolean LANGUAGE C IMMUTABLE RETURNS NULL ON NULL INPUT PARALLEL SAFE AS 'MODULE_PATHNAME';
+CREATE OPERATOR !!= (FUNCTION = match_vles, LEFTARG = variable_edge, RIGHTARG = variable_edge);
 
 --
 -- End

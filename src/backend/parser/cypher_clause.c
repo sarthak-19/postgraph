@@ -110,7 +110,12 @@ static List *make_edge_quals(cypher_parsestate *cpstate, transform_entity *edge,
 static A_Expr *filter_vertices_on_label_id(cypher_parsestate *cpstate, Node *id_field, char *label);
 static Node *create_property_constraints(cypher_parsestate *cpstate, transform_entity *entity, Node *property_constraints);
 static TargetEntry *findTarget(List *targetList, char *resname);
-static transform_entity *transform_VLE_edge_entity(cypher_parsestate *cpstate, cypher_relationship *rel, Query *query);
+static transform_entity *transform_VLE_edge_entity(cypher_parsestate *cpstate,
+                                                   cypher_relationship *rel,
+                                                   Query *query, FuncCall *func);
+static ParseNamespaceItem *append_vle_to_from_clause(cypher_parsestate *cpstate,
+                                                    Node *n);
+
 // create clause
 static Query *transform_cypher_create(cypher_parsestate *cpstate, cypher_clause *clause);
 static List *transform_cypher_create_pattern(cypher_parsestate *cpstate, Query *query, List *pattern);
@@ -127,9 +132,7 @@ static Expr *add_volatile_vertex_wrapper(Expr *node);
 static Expr *add_volatile_vle_edge_wrapper(Expr *node);
 static bool variable_exists(cypher_parsestate *cpstate, char *name);
 static int get_target_entry_resno(cypher_parsestate *cpstate, List *target_list, char *name);
-static TargetEntry *get_target_entry(List *target_list, char *name);
 static void handle_prev_clause(cypher_parsestate *cpstate, Query *query, cypher_clause *clause, bool first_rte);
-static TargetEntry *placeholder_target_entry(cypher_parsestate *cpstate, char *name);
 static Query *transform_cypher_sub_pattern(cypher_parsestate *cpstate, cypher_clause *clause);
 // set and remove clause
 static Query *transform_cypher_set(cypher_parsestate *cpstate, cypher_clause *clause);
@@ -147,11 +150,10 @@ static void get_res_cols(ParseState *pstate, ParseNamespaceItem *l_pnsi, ParseNa
 static Query *transform_cypher_unwind(cypher_parsestate *cpstate, cypher_clause *clause);
 // merge
 static Query *transform_cypher_merge(cypher_parsestate *cpstate, cypher_clause *clause);
-static cypher_create_path *
-transform_merge_make_lateral_join(cypher_parsestate *cpstate, Query *query, cypher_clause *clause, cypher_clause *isolated_merge_clause);
-static cypher_create_path * transform_cypher_merge_path(cypher_parsestate *cpstate, List **target_list, cypher_path *path);
-static cypher_target_node * transform_merge_cypher_edge(cypher_parsestate *cpstate, List **target_list, cypher_relationship *edge);
-static cypher_target_node * transform_merge_cypher_node(cypher_parsestate *cpstate, List **target_list, cypher_node *node);
+static cypher_create_path *transform_merge_make_lateral_join(cypher_parsestate *cpstate, Query *query, cypher_clause *clause, cypher_clause *isolated_merge_clause);
+static cypher_create_path *transform_cypher_merge_path(cypher_parsestate *cpstate, List **target_list, cypher_path *path);
+static cypher_target_node *transform_merge_cypher_edge(cypher_parsestate *cpstate, List **target_list, cypher_relationship *edge);
+static cypher_target_node *transform_merge_cypher_node(cypher_parsestate *cpstate, List **target_list, cypher_node *node);
 static Node *transform_clause_for_join(cypher_parsestate *cpstate, cypher_clause *clause, RangeTblEntry **rte, ParseNamespaceItem **nsitem, Alias* alias);
 static cypher_clause *convert_merge_to_match(cypher_merge *merge);
 static void transform_cypher_merge_mark_tuple_position(cypher_parsestate *cpstate, List *target_list, cypher_create_path *path);
@@ -175,13 +177,9 @@ static ParseNamespaceItem *get_namespace_item(ParseState *pstate, RangeTblEntry 
 static List *make_target_list_from_join(ParseState *pstate, RangeTblEntry *rte);
 static Expr *add_volatile_wrapper(Expr *node);
 static FuncExpr *make_clause_func_expr(char *function_name, Node *clause_information);
-// TODO: Integrate VLE and match, doesn't the original author feel special
 static ParseNamespaceItem *transform_RangeFunction(cypher_parsestate *cpstate, RangeFunction *r);
 static Node *transform_VLE_Function(cypher_parsestate *cpstate, Node *n, RangeTblEntry **top_rte, int *top_rti, List **namespace);
-static ParseNamespaceItem *append_VLE_Func_to_FromClause(cypher_parsestate *cpstate, Node *n);
 static void setNamespaceLateralState(List *namespace, bool lateral_only, bool lateral_ok);
-static bool is_vle_case(cypher_path *path);
-
 ParseNamespaceItem *find_pnsi(cypher_parsestate *cpstate, char *varname);
 
 /*
@@ -1817,10 +1815,235 @@ static Query *transform_cypher_sub_pattern(cypher_parsestate *cpstate, cypher_cl
 
     return qry;
 }
+static Node *make_null_const(int location)
+{
+    A_Const *n;
+
+    n = makeNode(A_Const);
+    n->val.type = T_Null;
+    n->location = location;
+
+    return (Node *)n;
+}
+static Node *make_int_const(int i, int location)
+{
+    A_Const *n;
+
+    n = makeNode(A_Const);
+    n->val.type = T_Integer;
+    n->val.val.ival = i;
+    n->location = location;
+
+    return (Node *)n;
+}
+
+static Node *make_string_const(char *s, int location)
+{
+    A_Const *n;
+
+    n = makeNode(A_Const);
+    n->val.type = T_String;
+    n->val.val.str = s;
+    n->location = location;
+
+    return (Node *)n;
+}
+
+static ParseNamespaceItem *append_vle_to_from_clause(cypher_parsestate *cpstate, Node *n) {
+    ParseState *pstate = &cpstate->pstate;
+    RangeTblEntry *rte = NULL;
+    List *namespace = NULL;
+    int rtindex;
+
+    n = transform_VLE_Function(cpstate, n, &rte, &rtindex, &namespace);
+    Assert(n != NULL);
+
+    checkNameSpaceConflicts(pstate, pstate->p_namespace, namespace);
+    
+    setNamespaceLateralState(namespace, true, true);
+
+    pstate->p_joinlist = lappend(pstate->p_joinlist, n);
+    pstate->p_namespace = list_concat(pstate->p_namespace, namespace);
+        
+    setNamespaceLateralState(pstate->p_namespace, false, true);
+        
+    return lfirst(list_head(namespace));
+
+
+}
+
+static FuncCall *make_vle_make_edge_func_call(cypher_relationship *rel)
+{
+    List *args = NIL;
+    List *fname = NIL;
+
+    if (rel->label == NULL)                                                      
+        args = lappend(args, make_null_const(-1));                             
+    else                                                                         
+        args = lappend(args, make_string_const(rel->label, -1));               
+                                                                                 
+    if (rel->props == NULL)                                                      
+        args = lappend(args, make_null_const(-1));                             
+    else                                                                         
+        args = lappend(args, rel->props);                                      
+    
+    fname = list_make2(makeString("postgraph"),                                 
+                       makeString("age_build_vle_match_edge"));                  
+                                                                                 
+    return makeFuncCall(fname, args, COERCE_SQL_SYNTAX, -1);     
+}
+
+static FuncCall *make_vle_func_call(cypher_parsestate *cpstate,
+       cypher_node *prev_node, cypher_relationship *rel, cypher_node *next_node)
+{
+    ColumnRef *cref;
+    A_Indices *ai = (A_Indices *)rel->varlen;
+    List *args = NIL;
+
+    Assert(prev_node->name != NULL);
+
+    // start node    
+    if (prev_node->name != NULL)
+    {
+        cref = makeNode(ColumnRef);
+        cref->location = -1;
+        cref->fields = list_make1(makeString(prev_node->name));
+        args = lappend(args, cref);
+    }
+    else
+    {
+        args = lappend(args, make_null_const(-1));
+    }
+
+    //end node
+    Assert(next_node->name != NULL);
+
+    cref = makeNode(ColumnRef);
+    cref->location = -1;
+    cref->fields = list_make1(makeString(next_node->name));
+    args = lappend(args, cref);
+
+    //edge constraints
+    args = lappend(args, make_vle_make_edge_func_call(rel));
+
+    // lower bound
+    if (ai == NULL || ai->lidx == NULL)
+        args = lappend(args, make_null_const(-1));
+    else
+        args = lappend(args, ai->lidx);
+
+    // upper bound
+    if (ai == NULL || ai->uidx == NULL)
+        args = lappend(args, make_null_const(-1));
+    else
+        args = lappend(args, ai->uidx);
+
+    // direction
+    args = lappend(args, make_int_const(rel->dir, -1));
+
+    // caching mechanic
+    //args = lappend(args, make_int_const(get_a_unique_number(), -1));
+
+    return makeFuncCall(list_make1(makeString("vle")), args, COERCE_SQL_SYNTAX, -1);
+}
+
+static transform_entity *handle_vertex(cypher_parsestate *cpstate, Query *query,
+                                       cypher_path *path, cypher_node *node,
+                                       int i)
+{
+    Expr *expr = NULL;
+    transform_entity *entity = NULL;
+
+    if(node->name == NULL &&
+       !INCLUDE_NODE_IN_JOIN_TREE(path, node) &&
+       i + 1 < list_length(path->path))
+    {
+        cypher_relationship *rel = list_nth(path->path, i + 1);
+
+        if (rel->varlen != NULL)
+        {
+            node->name = get_next_default_alias(cpstate);
+        }
+    }
+
+    /* transform vertex */
+    expr = transform_cypher_node(cpstate, node, &query->targetList,
+                                 INCLUDE_NODE_IN_JOIN_TREE(path, node));
+
+    entity = make_transform_entity(cpstate, ENT_VERTEX, (Node *)node, expr);
+
+    /* transform properties if they exist */
+    if (node->props)
+    {
+        Node *n = NULL;
+
+        n = create_property_constraints(cpstate, entity, node->props);
+
+        cpstate->property_constraint_quals =
+                        lappend(cpstate->property_constraint_quals, n);
+    }
+
+    return entity;
+}
+
+static transform_entity *handle_edge(cypher_parsestate *cpstate, Query *query, 
+                                     cypher_path *path, cypher_relationship *rel,     
+                                     int i, ListCell *lc, transform_entity *prev_entity) 
+{
+    transform_entity *entity = NULL;                            
+    Expr *expr = NULL;
+
+    /*                                                               
+     * In the case where the MATCH is one edge and two vertices, the 
+     * edge is bidirectional, and neither vertex is included in the  
+     * join tree, we need to force one of the vertices into the join 
+     * tree to ensure the output is generated correctly.             
+     */                                                              
+    if (list_length(path->path) == 3 && rel->dir == CYPHER_REL_DIR_NONE && !prev_entity->in_join_tree) {                                                                
+        cypher_node *node = list_nth(path->path, 2);//(cypher_node *)lfirst(lnext(path->path, lc));        
+                                                                                 
+        if (!INCLUDE_NODE_IN_JOIN_TREE(path, node))                  
+        {                                                            
+            /*                                                       
+             * Assigning a variable name here will ensure that when  
+             * the next vertex is processed, the vertex will be      
+             * included in the join tree.                            
+             */                                                      
+            node->name = get_next_default_alias(cpstate);            
+        }                                                            
+    }                                                                
+                                                                                 
+    expr = transform_cypher_edge(cpstate, rel, &query->targetList);  
+                                                                                 
+    entity = make_transform_entity(cpstate, ENT_EDGE, (Node *)rel, expr);                            
+    if (rel->props)                                                  
+    {                                                                
+        Node *n = create_property_constraints(cpstate, entity, rel->props);
+
+        cpstate->property_constraint_quals =                         
+                            lappend(cpstate->property_constraint_quals, n);          
+    }                                                                
+                                                 
+   return entity; 
+}
 
 /*
- * This function will transform the VLE function, depending on type. Currently, only
- * RangeFunctions are supported. But, others may be in the future.
+ *
+ */
+static List *insert_vle_entity(List *entities, transform_entity *next_entity,
+                               transform_entity *vle_entity)
+{
+
+    entities = list_truncate(entities, list_length(entities) - 1);   
+    entities = lappend(entities, vle_entity);                        
+                                                                                 
+    entities = lappend(entities, next_entity);   
+
+    return entities;
+}
+
+/*
+ * This function will transform the VLE function
  */
 static Node *transform_VLE_Function(cypher_parsestate *cpstate, Node *n, RangeTblEntry **top_rte, int *top_rti,
                                     List **namespace) {
@@ -1834,7 +2057,7 @@ static Node *transform_VLE_Function(cypher_parsestate *cpstate, Node *n, RangeTb
         ParseNamespaceItem *nsitem;
         int rtindex;
 
-        nsitem = transform_RangeFunction(cpstate, (RangeFunction *) n);
+        nsitem = transform_RangeFunction(cpstate, (RangeFunction *) n);//transform_range_function(cpstate, (RangeFunction *) n);
         rte = nsitem->p_rte;
         rtindex = list_length(pstate->p_rtable);
         Assert(rte == rt_fetch(rtindex, pstate->p_rtable));
@@ -1859,28 +2082,6 @@ static void setNamespaceLateralState(List *namespace, bool lateral_only, bool la
         nsitem->p_lateral_only = lateral_only;
         nsitem->p_lateral_ok = lateral_ok;
     }
-}
-
-//function to add in the VLE function as a FROM clause entry.
-static ParseNamespaceItem *append_VLE_Func_to_FromClause(cypher_parsestate *cpstate, Node *n) {
-    ParseState *pstate = &cpstate->pstate;
-    RangeTblEntry *rte = NULL;
-    List *namespace = NULL;
-    int rtindex;
-
-    n = transform_VLE_Function(cpstate, n, &rte, &rtindex, &namespace);
-    Assert(n != NULL);
-
-    checkNameSpaceConflicts(pstate, pstate->p_namespace, namespace);
-
-    setNamespaceLateralState(namespace, true, true);
-
-    pstate->p_joinlist = lappend(pstate->p_joinlist, n);
-    pstate->p_namespace = list_concat(pstate->p_namespace, namespace);
-
-    setNamespaceLateralState(pstate->p_namespace, false, true);
-
-    return lfirst(list_head(namespace));
 }
 
 // transform a function call appearing in FROM
@@ -2104,67 +2305,8 @@ static List *make_join_condition_for_edge(cypher_parsestate *cpstate, transform_
     transform_entity *next_entity;
     transform_entity *prev_entity;
 
-    /*
-     * When this edge is a vle edge, pass the prev and next
-     * node to the match_vle_terminal_edge function to process
-     * which rows match.
-     */
-    if (entity->type == ENT_VLE_EDGE) {
-        List *quals = NIL;
-
-        Node *left_id = NULL;
-        Node *right_id = NULL;
-        Value *catalog = makeString(CATALOG_SCHEMA);
-        Value *func_name;
-        List *qualified_func_name;
-        List *args = NIL;
-
-        // If the next node is not in the join tree, we don't need to make any quals.
-        if (!next_node->in_join_tree)
-            return NIL;
-
-        if (prev_node->in_join_tree) {
-	    cypher_relationship *rel = entity->entity.rel;
-
-
-            ParseNamespaceItem *pnsi;
-            pnsi = find_pnsi(cpstate, get_entity_name(entity));
-            Node *prev_id = (Node *)make_qual(cpstate, prev_node, "id");
-            Node *next_id = (Node *)make_qual(cpstate, next_node, "id");
-            Node *edges_var = scanNSItemForColumn(cpstate, pnsi, 0, "edges", -1);
-
-	    if (rel->dir == CYPHER_REL_DIR_RIGHT) {
-                Node *op = makeSimpleA_Expr(AEXPR_OP, "!>=", prev_id, edges_var, -1);
-	        quals = lappend(quals, op);
-
-	        op = makeSimpleA_Expr(AEXPR_OP, "@>=", next_id, edges_var, -1);
-                quals = lappend(quals, op);
-	    } else if (rel->dir == CYPHER_REL_DIR_LEFT) {
-                Node *op = makeSimpleA_Expr(AEXPR_OP, "!<=", prev_id, edges_var, -1);
-                quals = lappend(quals, op);
-
-                op = makeSimpleA_Expr(AEXPR_OP, "@<=", next_id, edges_var, -1);
-                quals = lappend(quals, op);
-
-	    } else {
-                Node *first_qual = makeBoolExpr(AND_EXPR, 
-				    list_make2(
-				makeSimpleA_Expr(AEXPR_OP, "!>=", prev_id, edges_var, -1),
-		                makeSimpleA_Expr(AEXPR_OP, "@>=", next_id, edges_var, -1)), -1);
-				     
-               Node *second_qual = makeBoolExpr(AND_EXPR,
-					list_make2(
-					    makeSimpleA_Expr(AEXPR_OP, "!<=", prev_id, edges_var, -1),
-                                            makeSimpleA_Expr(AEXPR_OP, "@<=", next_id, edges_var, -1)), -1);
-
-               Node *or_qual = makeBoolExpr(OR_EXPR, list_make2(first_qual, second_qual), -1);
-
-               return list_make1(or_qual);
-	    }
-      	}
-
-        return quals;
-    }
+    if (entity->type == ENT_VLE_EDGE)
+        return NIL;
 
     //  If the previous node is not in the join tree, set the previous label filter.
     if (!prev_node->in_join_tree)
@@ -2425,210 +2567,132 @@ static List *transform_match_path(cypher_parsestate *cpstate, Query *query, cyph
 
     return qual;
 }
-
-static transform_entity *transform_VLE_edge_entity(cypher_parsestate *cpstate, cypher_relationship *rel, Query *query) {
-    ParseState *pstate = (ParseState *)cpstate;
+static transform_entity *transform_VLE_edge_entity(cypher_parsestate *cpstate,
+                                                   cypher_relationship *rel,
+                                                   Query *query, FuncCall *func) {
+    ParseState *pstate = NULL;
     TargetEntry *te = NULL;
     RangeFunction *rf = NULL;
-    FuncCall *func = NULL;
+    ParseNamespaceItem *rte = NULL;
     Alias *alias = NULL;
     Node *var = NULL;
     transform_entity *vle_entity = NULL;
-    ParseNamespaceItem *pnsi;
+ParseNamespaceItem *pnsi;
 
-    Assert(IsA(rel->varlen, FuncCall));
+    if (list_length(func->funcname) != 1)
+        ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("only AGE functions are supported here")));
 
-    func = (FuncCall*)rel->varlen;
+    if (!rel->name)
+       rel->name = get_next_default_alias(cpstate);
 
-    Assert(list_length(func->funcname) == 1);
-    if (!rel->name )
-            rel->name = get_next_default_alias(cpstate);
+    pstate = &cpstate->pstate;
 
+    /* make a RangeFunction node */
     rf = makeNode(RangeFunction);
     rf->lateral = false;
     rf->ordinality = false;
     rf->is_rowsfrom = false;
-    rf->functions = list_make1(list_make2(rel->varlen, NIL));
+    rf->functions = list_make1(list_make2(func, NIL));
 
-    // Build an alias for the RangeFunction. This is needed so we* can chain VLEs together
     alias = makeNode(Alias);
-    alias->aliasname = rel->name;
+    alias->aliasname = rel->name;//get_next_default_alias(cpstate);
     alias->colnames = NIL;
+
     rf->alias = alias;
 
-    // Add the RangeFunction to the FROM clause
-    pnsi = append_VLE_Func_to_FromClause(cpstate, (Node*)rf);
-
-    // Get the var node for the VLE functions column name.
-    var = scanNSItemForColumn(pstate, pnsi, 0, "edges", -1);
+    /*
+     * Add the RangeFunction to the FROM clause
+     */
+    pnsi = append_vle_to_from_clause(cpstate, (Node*)rf);
+    //rte->p_names = alias;
+    /* Get the var node for the VLE functions column name. */
+    var = scanNSItemForColumn(pstate, pnsi, 0, "edges", -1);//scanNSItemForColumn(pstate, rte, "edges", -1, 0, NULL);
 
     te = makeTargetEntry((Expr*)var, pstate->p_next_resno++, rel->name, false);
     query->targetList = lappend(query->targetList, te);
 
     vle_entity = make_transform_entity(cpstate, ENT_VLE_EDGE, (Node *)rel, (Expr *)var);
 
-    // return the vle entity
     return vle_entity;
-}
-
-static bool is_vle_case(cypher_path *path) {
-    cypher_relationship *cr = NULL;
-
-    if (path->var_name == NULL)
-        return false;
-
-    if (list_length(path->path) != 3)
-        return false;
-
-    cr = (cypher_relationship*)lfirst(lnext(path->path, list_head(path->path)));
-
-    if (cr->varlen != NULL)
-        return true;
-
-    return false;
 }
 
 /*
  * Iterate through the path and construct all edges and necessary vertices
  */
 static List *transform_match_entities(cypher_parsestate *cpstate, Query *query, cypher_path *path) {
-    ParseState *pstate = (ParseState *)cpstate;
     ListCell *lc = NULL;
     List *entities = NIL;
-    int i = 0;
-    bool node_declared_in_prev_clause = false;
-    transform_entity *prev_entity = NULL;
-    bool special_VLE_case = false;
-
-    special_VLE_case = is_vle_case(path);
+    transform_entity *prev_node_entity = NULL;
 
     /*
      * Iterate through every node in the path, construct the expr node
      * that is needed for the remaining steps
      */
-    foreach (lc, path->path) {
+    //foreach (lc, path->path) {
+    for (int i = 0; i < list_length(path->path); i++) {
         Expr *expr = NULL;
         transform_entity *entity = NULL;
 
 
-        /* even increments of i are vertices */
         if (i % 2 == 0) {
             cypher_node *node = NULL;
             bool output_node = false;
 
-            node = lfirst(lc);
+            node = list_nth(path->path, i);//lfirst(lc);
 
-            /*
-             * The vle needs to know if the start vertex was
-             * created in a previous clause. Check to see if it
-             * was so the edge logic can handle changing its argument
-             * if necessary.
-             */
-            if (node->name != NULL) {
-                /*
-                 * Checks the previous clauses to see if the variable already
-                 * exists.
-                 */
-                Node *expr = colNameToVar(pstate, node->name, false, node->location);
-                if (expr != NULL)
-                    node_declared_in_prev_clause = true;
-            }
-
-            output_node = (special_VLE_case && !node->name && !node->props) ?
-                          false : INCLUDE_NODE_IN_JOIN_TREE(path, node);
-
-            expr = transform_cypher_node(cpstate, node, &query->targetList, output_node);
-
-            entity = make_transform_entity(cpstate, ENT_VERTEX, (Node *)node, expr);
-
-            if (node->props) {
-                Node *n = NULL;
-
-                n = create_property_constraints(cpstate, entity, node->props);
-
-                cpstate->property_constraint_quals = lappend(cpstate->property_constraint_quals, n);
-            }
+            entity = handle_vertex(cpstate, query, path, node, i);
 
             cpstate->entities = lappend(cpstate->entities, entity);
             entities = lappend(entities, entity);
-
-            prev_entity = entity;
+            //i++;
+            prev_node_entity = entity;
+	    //continue;
         } else {
             cypher_relationship *rel = NULL;
 
-            rel = lfirst(lc);
+            rel = list_nth(path->path, i);//lfirst(lc);
+            
+            if (!rel->varlen) {
 
-            /*
-             * There are 2 edge cases - 1) a regular edge and 2) a VLE edge.
-             * A VLE edge is not added like a regular edge - it is a function.
-             */
-
-            if (rel->varlen == NULL) {
-                /*
-                 * In the case where the MATCH is one edge and two vertices, the
-                 * edge is bidirectional, and neither vertex is included in the
-                 * join tree, we need to force one of the vertices into the join
-                 * tree to ensure the output is generated correctly.
-                 */
-                if (list_length(path->path) == 3 && rel->dir == CYPHER_REL_DIR_NONE && !prev_entity->in_join_tree) {
-                    cypher_node *node = (cypher_node *)lfirst(lnext(path->path, lc));
-
-		        /*
-                         * Assigning a variable name here will ensure that when
-                         * the next vertex is processed, the vertex will be
-                         * included in the join tree.
-                         */
-                    if (!INCLUDE_NODE_IN_JOIN_TREE(path, node))
-                        node->name = get_next_default_alias(cpstate);
-                }
-
-                expr = transform_cypher_edge(cpstate, rel, &query->targetList);
-
-                entity = make_transform_entity(cpstate, ENT_EDGE, (Node *)rel, expr);
+		entity = handle_edge(cpstate, query, path, rel, i, lc, prev_node_entity);
 
                 cpstate->entities = lappend(cpstate->entities, entity);
-
-                if (rel->props) {
-                    Node *n = create_property_constraints(cpstate, entity, rel->props);
-                    cpstate->property_constraint_quals = lappend(cpstate->property_constraint_quals, n);
-                }
-
                 entities = lappend(entities, entity);
-
-                prev_entity = entity;
+                //i++;
+		//continue;
             } else {
-                transform_entity *vle_entity = NULL;
+                 transform_entity *vle_entity = NULL;
+                transform_entity *next_entity = NULL;
+                FuncCall *fnode = NULL;
 
-                /*
-                 * Check to see if the previous node was originally created
-                 * in a predecessing clause. If it was, then remove the id field
-                 * from the column ref. Just reference the gtype vertex
-                 * variable that the prev clause created and the vle will handle
-                 * extracting the id.
-                 */
-                if (node_declared_in_prev_clause) {
-                    FuncCall *func = (FuncCall*)rel->varlen;
+                cypher_node *node = (cypher_node *)list_nth(path->path, i + 1);
 
-                    ColumnRef *cr = linitial(func->args);
+                if (!INCLUDE_NODE_IN_JOIN_TREE(path, node))
+                     node->name = get_next_default_alias(cpstate);
 
-                    Assert(IsA(cr, ColumnRef));
-                    Assert(list_length(cr->fields) == 1);
+                next_entity = handle_vertex(cpstate, query, path, node, i + 1);
 
-                    cr->fields = list_make1(linitial(cr->fields));
-                }
+                cpstate->entities = lappend(cpstate->entities, next_entity);
+               entities = lappend(entities, next_entity);
 
-                vle_entity = transform_VLE_edge_entity(cpstate, rel, query);
+                fnode = make_vle_func_call(cpstate, prev_node_entity->entity.node, rel, node);
 
-                cpstate->entities = lappend(cpstate->entities, vle_entity);
-                entities = lappend(entities, vle_entity);
+                vle_entity = transform_VLE_edge_entity(cpstate, rel, query, fnode);
 
-                prev_entity = entity;
+                insert_vle_entity(cpstate->entities, next_entity, vle_entity);
+                insert_vle_entity(entities, next_entity, vle_entity); 
+
+                //lc = lnext(path->path, lc);
+                prev_node_entity = next_entity;
+
+                i += 1;
+
+                //continue;
+
             }
-
-            node_declared_in_prev_clause = false;
         }
-
-        i++;
     }
     return entities;
 }
@@ -3418,20 +3482,6 @@ static int get_target_entry_resno(cypher_parsestate *cpstate, List *target_list,
     return -1;
 }
 
-static TargetEntry *get_target_entry(List *target_list, char *name) {
-    ListCell *lc;
-        
-    foreach (lc, target_list) {
-        TargetEntry *te = (TargetEntry *)lfirst(lc);
-       
-        if (!strcmp(te->resname, name)) {
-            return te;
-        }
-    }   
-        
-    return NULL;
-} 
-
 /*
 * Transform logic for a previously declared variable in a CREATE clause.
 * All we need from the variable node is its id, and whether we can skip
@@ -3590,26 +3640,6 @@ static TargetEntry *placeholder_traversal(cypher_parsestate *cpstate, char *name
     return makeTargetEntry(n, resno, name, false);
 }
 
-
-/*
- * Variable Edges cannot be created until the executor phase, because we
- * don't know what their start and end node ids will be. Therefore, path
- * variables cannot be created either. Create a placeholder entry that we
- * will replace in the execution phase. Do this for nodes too, to be
- * consistent.
- */
-static TargetEntry *placeholder_target_entry(cypher_parsestate *cpstate, char *name) {
-    ParseState *pstate = (ParseState *)cpstate;
-    Expr *n;
-    int resno;
-
-    n = (Expr *)makeNullConst(GTYPEOID, -1, InvalidOid);
-    n = add_volatile_wrapper(n);
-
-    resno = pstate->p_next_resno++;
-
-    return makeTargetEntry(n, resno, name, false);
-}
 
 /*
  * Build the target list for an entity that is not a previously declared

@@ -1608,7 +1608,7 @@ Datum _gtype_build_path(PG_FUNCTION_ARGS)
 
            char *ptr = &ve->children[1];
 
-           for (j = 0; j < ve->children[0]; j++, ptr = ptr + VARSIZE(ptr)) ; {
+           for (j = 0; j < ve->children[0]; j++, ptr = ptr + VARSIZE(ptr)) {
                 if (j % 2 == 1) { //vertex
 		    vertex *v = (vertex *)ptr;
                     graphid id = (int64)v->children[0];
@@ -1628,7 +1628,7 @@ Datum _gtype_build_path(PG_FUNCTION_ARGS)
 		   	 	          CStringGetDatum(label), DirectFunctionCall1(gtype_build_map_noargs, NULL));
 
 		    add_gtype(GTYPE_P_GET_DATUM(gt), false, &result, GTYPEOID, false);
-		} //BlackPink
+		}
 	   }
            continue; 
 	}

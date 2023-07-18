@@ -80,15 +80,15 @@ void append_edge_to_string(StringInfoData *str, edge *v) {
 
     // id
     appendStringInfoString(str, "{\"id\": ");
-    appendStringInfoString(str, DatumGetCString(DirectFunctionCall1(int8out, Int64GetDatum((int64)v->children[0]))));
+    appendStringInfoString(str, DatumGetCString(DirectFunctionCall1(int8out, Int64GetDatum(*((int64 *)(&v->children[0]))))));
 
     // start_id
     appendStringInfoString(str, ", \"start_id\": ");
-    appendStringInfoString(str, DatumGetCString(DirectFunctionCall1(int8out, Int64GetDatum((int64)v->children[2]))));
+    appendStringInfoString(str, DatumGetCString(DirectFunctionCall1(int8out, Int64GetDatum(*((int64 *)(&v->children[2]))))));
 
     // end_id
     appendStringInfoString(str, ", \"end_id\": ");
-    appendStringInfoString(str, DatumGetCString(DirectFunctionCall1(int8out, Int64GetDatum((int64)v->children[4]))));
+    appendStringInfoString(str, DatumGetCString(DirectFunctionCall1(int8out, Int64GetDatum(*((int64 *)(&v->children[4]))))));
 
     // label
     appendStringInfoString(str, ", \"label\": \"");
@@ -98,7 +98,6 @@ void append_edge_to_string(StringInfoData *str, edge *v) {
     appendStringInfoString(str, "\", \"properties\": ");
     gtype *agt = extract_edge_properties(v);
     gtype_to_cstring(str, &agt->root, 0);
-
 
     appendStringInfoString(str, "}");
 

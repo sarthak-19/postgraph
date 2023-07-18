@@ -37,6 +37,7 @@
 #include "utils/graphid.h"
 #include "utils/vertex.h"
 #include "utils/edge.h"
+#include "utils/traversal.h"
 
 static void begin_cypher_merge(CustomScanState *node, EState *estate,
                                int eflags);
@@ -68,13 +69,43 @@ const CustomExecMethods cypher_merge_exec_methods = {MERGE_SCAN_STATE_NAME,
                                                      NULL,
                                                      NULL};
 
+static void
+append_to_buffer(StringInfo buffer, const char *data, int len) {
+    int offset = reserve_from_buffer(buffer, len);
+    memcpy(buffer->data + offset, data, len);
+}
+
+
+static Datum create_traversal(List *entities) {
+    ListCell *lc;
+    StringInfoData buffer;
+    initStringInfo(&buffer);
+
+    // header
+    reserve_from_buffer(&buffer, VARHDRSZ);
+
+    // length
+    reserve_from_buffer(&buffer, sizeof(pentry));
+
+    foreach(lc, entities) {
+        Datum d = lfirst(lc);
+        append_to_buffer(&buffer, d, VARSIZE_ANY(d));
+    }
+
+    traversal *p = (traversal *)buffer.data;
+
+    p->children[0] = list_length(entities);
+    SET_VARSIZE(p, buffer.len);
+
+    return TRAVERSAL_GET_DATUM(p);
+}
+
+
 /*
  * Initializes the MERGE Execution Node at the begginning of the execution
  * phase.
  */
-static void begin_cypher_merge(CustomScanState *node, EState *estate,
-                               int eflags)
-{
+static void begin_cypher_merge(CustomScanState *node, EState *estate, int eflags) {
     cypher_merge_custom_scan_state *css =
         (cypher_merge_custom_scan_state *)node;
     ListCell *lc;
@@ -120,9 +151,7 @@ static void begin_cypher_merge(CustomScanState *node, EState *estate,
          * that already exists.
          */
         if (!CYPHER_TARGET_NODE_INSERT_ENTITY(cypher_node->flags))
-        {
             continue;
-        }
 
         // Open relation and aquire a row exclusive lock.
         rel = table_open(cypher_node->relid, RowExclusiveLock);
@@ -143,16 +172,10 @@ static void begin_cypher_merge(CustomScanState *node, EState *estate,
             &TTSOpsHeapTuple);
 
         if (cypher_node->id_expr != NULL)
-        {
-            cypher_node->id_expr_state =
-                ExecInitExpr(cypher_node->id_expr, (PlanState *)node);
-        }
+            cypher_node->id_expr_state = ExecInitExpr(cypher_node->id_expr, (PlanState *)node);
 
         if (cypher_node->prop_expr != NULL)
-        {
-            cypher_node->prop_expr_state =
-                ExecInitExpr(cypher_node->prop_expr, (PlanState *)node);
-        }
+            cypher_node->prop_expr_state = ExecInitExpr(cypher_node->prop_expr, (PlanState *)node);
     }
 
     /*
@@ -163,9 +186,7 @@ static void begin_cypher_merge(CustomScanState *node, EState *estate,
      * that have modified the command id.
      */
     if (estate->es_output_cid == 0)
-    {
         estate->es_output_cid = estate->es_snapshot->curcid;
-    }
 
     /* store the currentCommandId for this instance */
     css->base_currentCommandId = GetCurrentCommandId(false);
@@ -195,8 +216,7 @@ static bool check_path(cypher_merge_custom_scan_state *css,
          * state that if one part of the path does not exists, the whold
          * path must be created.
          */
-        if (node->tuple_position != InvalidAttrNumber ||
-            ((node->flags & CYPHER_TARGET_NODE_MERGE_EXISTS) == 0))
+        if (node->tuple_position != InvalidAttrNumber || ((node->flags & CYPHER_TARGET_NODE_MERGE_EXISTS) == 0))
         {
             /*
              * Attribute number is 1 indexed and tts_values is 0 indexed,
@@ -238,9 +258,9 @@ static void process_path(cypher_merge_custom_scan_state *css)
         Datum result;
 
         //result = make_path(css->path_values);
-
-        scantuple->tts_values[path->path_attr_num - 1] = NULL;//result;
-        scantuple->tts_isnull[path->path_attr_num - 1] = true;//false;
+        result = create_traversal(css->path_values);
+        scantuple->tts_values[path->path_attr_num - 1] = result;
+        scantuple->tts_isnull[path->path_attr_num - 1] = false;
     }
 }
 

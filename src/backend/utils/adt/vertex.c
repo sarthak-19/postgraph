@@ -82,7 +82,6 @@ void append_vertex_to_string(StringInfoData *buffer, vertex *v){
     gtype *agt = extract_vertex_properties(v);
     gtype_to_cstring(buffer, &agt->root, 0);
 
-
     appendStringInfoString(buffer, "}");
 
 }

@@ -59,7 +59,7 @@ typedef uint32 eentry;
  */
 typedef struct
 {
-    int32 vl_len_; // varlena header (do not touch directly!)
+    int32 vl_len_;
     eentry children[FLEXIBLE_ARRAY_MEMBER];
 } edge;
 
